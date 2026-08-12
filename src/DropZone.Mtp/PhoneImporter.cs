@@ -57,7 +57,10 @@ public sealed class PhoneImporter(IPhoneSource source, IImportLedger ledger)
 
                     ledger.MarkImported(entry.Item.Path);
                     copied++;
-                    bytes += entry.Item.Size;
+
+                    // Sizes are unknown before the copy — asking the phone costs a round-trip
+                    // each — so measure what actually landed on disk.
+                    bytes += new FileInfo(target).Length;
                 }
                 catch (OperationCanceledException) { throw; }
                 catch (Exception ex)

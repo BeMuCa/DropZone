@@ -159,6 +159,10 @@ public sealed class MediaDevicesPhoneSource : IPhoneSource
 
                 foreach (var filePath in files)
                 {
+                    // Per file, not just per folder: one folder can hold hundreds of items and
+                    // Stop has to feel immediate.
+                    cancellationToken.ThrowIfCancellationRequested();
+
                     var name = Path.GetFileName(filePath);
                     if (!MediaClassifier.IsMedia(name)) continue;
 
