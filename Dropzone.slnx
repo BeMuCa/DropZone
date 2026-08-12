@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Dropzone.App/Dropzone.App.csproj" />
+    <Project Path="src/Dropzone.Cli/Dropzone.Cli.csproj" />
+    <Project Path="src/Dropzone.LocalSend/Dropzone.LocalSend.csproj" />
+    <Project Path="src/Dropzone.Mtp/Dropzone.Mtp.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Dropzone.LocalSend.Tests/Dropzone.LocalSend.Tests.csproj" />
+    <Project Path="tests/Dropzone.Mtp.Tests/Dropzone.Mtp.Tests.csproj" />
+  </Folder>
+</Solution>
