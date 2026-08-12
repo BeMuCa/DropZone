@@ -149,26 +149,21 @@ public sealed class TransferService : IAsyncDisposable
 
     void OnTextReceived(ReceivedText message)
     {
-        if (!ScriptCommandParser.TryParse(message.Text, out var command)) return;
+        var decision = ScriptGate.Evaluate(message.Text, Settings.AllowRemoteScripts, Scripts);
 
-        if (!Settings.AllowRemoteScripts)
+        if (decision.Outcome == ScriptGateOutcome.NotACommand) return;
+
+        if (!decision.IsAllowed)
         {
             ScriptInvoked?.Invoke(new ScriptInvocation(
-                command.ScriptName, message.Sender.Alias, false, "Remote scripts are switched off"));
+                message.Text, message.Sender.Alias, false, decision.Detail));
             return;
         }
 
-        var script = Scripts.FindRemotelyInvocable(command.ScriptName);
-        if (script is null)
-        {
-            ScriptInvoked?.Invoke(new ScriptInvocation(
-                command.ScriptName, message.Sender.Alias, false, "Not enabled for remote start"));
-            return;
-        }
-
+        var script = decision.Script!;
         try
         {
-            ScriptRegistry.Run(script, command.Arguments);
+            ScriptRegistry.Run(script, decision.Arguments);
             ScriptInvoked?.Invoke(new ScriptInvocation(script.DisplayName, message.Sender.Alias, true, "Started"));
         }
         catch (Exception ex)
