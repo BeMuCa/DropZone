@@ -3,6 +3,7 @@
     <Project Path="src/DropZone.App/DropZone.App.csproj" />
     <Project Path="src/DropZone.Cli/DropZone.Cli.csproj" />
     <Project Path="src/DropZone.LocalSend/DropZone.LocalSend.csproj" />
+    <Project Path="src/DropZone.Mcp/DropZone.Mcp.csproj" />
     <Project Path="src/DropZone.Mtp/DropZone.Mtp.csproj" />
   </Folder>
   <Folder Name="/tests/">

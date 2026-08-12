@@ -108,6 +108,34 @@ DropZone appends the quoted script path and any parameter, so `.py` runs
 `py -3 "C:\...\Timer.py" 5`. Change `py -3` to `python3`, or point `.ps1` at `pwsh`, if you
 prefer — the Scripts tab shows the resolved command line under **Runs**.
 
+## Driving it from Claude
+
+DropZone ships an MCP server, so Claude — or anything else that speaks the Model Context
+Protocol — can work the phone and the network on your behalf. `DropZone.Mcp.exe` sits next
+to the app in the install folder and talks stdio. Register it once:
+
+```powershell
+claude mcp add -s user dropzone B:\DropZone\DropZone.Mcp.exe
+```
+
+If Claude runs inside WSL, point it at the same file through the drive mount instead:
+`/mnt/b/DropZone/DropZone.Mcp.exe`.
+
+| Tool | What it does |
+|---|---|
+| `phone_status` | whether an iPhone is attached and unlocked |
+| `phone_scan` | list media newest-first, stopping once it has `limit` files |
+| `phone_import` | copy photos and videos into dated folders |
+| `discover_peers` | announce this PC and list the devices that answer |
+| `send_files` | send files to a peer, matched on alias or fingerprint |
+| `transfer_history` | the transfers the tray app has recorded |
+
+Every call is self-contained, so the tray app does not have to be running, and nothing holds
+the phone or the discovery socket open afterwards. The two can run side by side — discovery
+sets `SO_REUSEADDR`, so both hear announcements — but do not scan the phone from both at once.
+
+Imports share the tray app's ledger, so a file taken by one is not taken again by the other.
+
 ## Why the cable is one-way
 
 iOS exposes its camera roll over MTP read-only. Writing is refused at the driver level:
@@ -140,6 +168,8 @@ dotnet build DropZone.slnx
 dotnet test  DropZone.slnx
 dotnet publish src/DropZone.App/DropZone.App.csproj -c Release -r win-x64 `
   --self-contained false -p:PublishSingleFile=true -o publish
+dotnet publish src/DropZone.Mcp/DropZone.Mcp.csproj -c Release -r win-x64 `
+  --self-contained false -p:PublishSingleFile=true -o publish
 ```
 
 Note the solution is `DropZone.slnx`, not `.sln` — .NET 10 emits the XML solution format.
@@ -153,6 +183,7 @@ src/DropZone.Mtp         cable import: folder parsing, planning, ledger, MediaDe
 src/DropZone.LocalSend   protocol v2: discovery, Kestrel receiver, sender
 src/DropZone.App         WPF tray app (H.NotifyIcon)
 src/DropZone.Cli         diagnostics for the cable path
+src/DropZone.Mcp         MCP server exposing the above as agent tools
 tests/                   xunit
 ```
 

@@ -38,6 +38,15 @@ jobs:
           -p:PublishSingleFile=true
           --output publish
 
+      - name: Publish the MCP server alongside it
+        run: >
+          dotnet publish src/DropZone.Mcp/DropZone.Mcp.csproj
+          --configuration Release
+          --runtime win-x64
+          --self-contained false
+          -p:PublishSingleFile=true
+          --output publish
+
       - name: Stage installer scripts alongside the build
         run: |
           Copy-Item install.ps1 publish/
