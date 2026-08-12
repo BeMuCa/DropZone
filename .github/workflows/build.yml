@@ -21,17 +21,17 @@ jobs:
           dotnet-version: '10.0.x'
 
       - name: Restore
-        run: dotnet restore Dropzone.slnx
+        run: dotnet restore DropZone.slnx
 
       - name: Build
-        run: dotnet build Dropzone.slnx --configuration Release --no-restore
+        run: dotnet build DropZone.slnx --configuration Release --no-restore
 
       - name: Test
-        run: dotnet test Dropzone.slnx --configuration Release --no-build --verbosity normal
+        run: dotnet test DropZone.slnx --configuration Release --no-build --verbosity normal
 
       - name: Publish
         run: >
-          dotnet publish src/Dropzone.App/Dropzone.App.csproj
+          dotnet publish src/DropZone.App/DropZone.App.csproj
           --configuration Release
           --runtime win-x64
           --self-contained false
@@ -47,7 +47,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Dropzone-win-x64
+          name: DropZone-win-x64
           path: publish/
           if-no-files-found: error
 
@@ -61,14 +61,14 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: Dropzone-win-x64
+          name: DropZone-win-x64
           path: publish
 
       - name: Zip it
-        run: cd publish && zip -r ../Dropzone-win-x64.zip .
+        run: cd publish && zip -r ../DropZone-win-x64.zip .
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          files: Dropzone-win-x64.zip
+          files: DropZone-win-x64.zip
           generate_release_notes: true

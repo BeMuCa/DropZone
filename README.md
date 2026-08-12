@@ -1,4 +1,4 @@
-# Dropzone
+# DropZone
 
 A small Windows tray tool that moves photos, video and files between an iPhone and a PC —
 and between PCs — without iTunes and without an Apple account.
@@ -10,17 +10,17 @@ Two independent paths:
 | **Cable** | iPhone → PC only | Windows' inbox MTP/WPD driver. No iTunes, no Apple Mobile Device Support. |
 | **Wireless** | both ways | LocalSend v2 protocol, so it interoperates with the stock LocalSend apps. |
 
-Dropzone is **not** a fork of LocalSend. It is an independent implementation of the
+DropZone is **not** a fork of LocalSend. It is an independent implementation of the
 [published protocol](https://github.com/localsend/protocol).
 
 ## Install
 
-Grab `Dropzone-win-x64` from the latest [Actions run](../../actions) or
+Grab `DropZone-win-x64` from the latest [Actions run](../../actions) or
 [release](../../releases), unzip it, then:
 
 ```powershell
-.\install.ps1                              # installs to B:\Dropzone
-.\install.ps1 -InstallDir 'D:\Tools\Dropzone'
+.\install.ps1                              # installs to B:\DropZone
+.\install.ps1 -InstallDir 'D:\Tools\DropZone'
 .\install.ps1 -Autostart                   # also start with Windows
 ```
 
@@ -41,10 +41,10 @@ winget install Microsoft.DotNet.DesktopRuntime.10
 ```
 
 It stops the app, removes the install folder, the Start Menu shortcut and the autostart
-entry. Everything Dropzone writes lives in exactly two places:
+entry. Everything DropZone writes lives in exactly two places:
 
-- `%USERPROFILE%\Dropzone` — received files, imports, scripts, history
-- `%APPDATA%\Dropzone` — settings
+- `%USERPROFILE%\DropZone` — received files, imports, scripts, history
+- `%APPDATA%\DropZone` — settings
 
 ## Using it
 
@@ -65,7 +65,7 @@ Quit from the tray icon's right-click menu.
 
 ## Scripts
 
-Scripts live in `%USERPROFILE%\Dropzone\Scripts` (`.ps1`, `.bat`, `.cmd`). A `Timer.ps1`
+Scripts live in `%USERPROFILE%\DropZone\Scripts` (`.ps1`, `.bat`, `.cmd`). A `Timer.ps1`
 example is created on first run.
 
 To start one from your phone, send a LocalSend **text message**:
@@ -96,13 +96,13 @@ So PC → iPhone transfers go over the wireless path instead. This is a limitati
 not of the tool.
 
 **The phone must be unlocked** whenever you scan or import. iOS hides the camera roll while
-the screen is locked, even after you have tapped Trust, so Dropzone will say so rather than
+the screen is locked, even after you have tapped Trust, so DropZone will say so rather than
 claim no phone is attached.
 
 ## Layout on the phone
 
 iOS does **not** present a `DCIM` folder over MTP. Internal Storage contains date-coded
-folders directly — `202508_b`, `202607__`, `YYYYMM` plus a two-character suffix. Dropzone
+folders directly — `202508_b`, `202607__`, `YYYYMM` plus a two-character suffix. DropZone
 parses these and files imports into `iPhone/2025/2025-08/`. Anything unparseable lands in
 `Unsorted/`.
 
@@ -111,32 +111,32 @@ parses these and files imports into `iPhone/2025/2025-08/`. Anything unparseable
 The projects target `net10.0-windows`, so build on Windows:
 
 ```powershell
-dotnet build Dropzone.slnx
-dotnet test  Dropzone.slnx
-dotnet publish src/Dropzone.App/Dropzone.App.csproj -c Release -r win-x64 `
+dotnet build DropZone.slnx
+dotnet test  DropZone.slnx
+dotnet publish src/DropZone.App/DropZone.App.csproj -c Release -r win-x64 `
   --self-contained false -p:PublishSingleFile=true -o publish
 ```
 
-Note the solution is `Dropzone.slnx`, not `.sln` — .NET 10 emits the XML solution format.
+Note the solution is `DropZone.slnx`, not `.sln` — .NET 10 emits the XML solution format.
 
 If you keep the source in WSL and build with the Windows SDK over a `\\wsl.localhost\...`
 UNC path, set an explicit local `ContentRootPath` on any ASP.NET host: the default
 `WebApplication.CreateBuilder()` hangs forever when the content root is a UNC path.
 
 ```
-src/Dropzone.Mtp         cable import: folder parsing, planning, ledger, MediaDevices source
-src/Dropzone.LocalSend   protocol v2: discovery, Kestrel receiver, sender
-src/Dropzone.App         WPF tray app (H.NotifyIcon)
-src/Dropzone.Cli         diagnostics for the cable path
+src/DropZone.Mtp         cable import: folder parsing, planning, ledger, MediaDevices source
+src/DropZone.LocalSend   protocol v2: discovery, Kestrel receiver, sender
+src/DropZone.App         WPF tray app (H.NotifyIcon)
+src/DropZone.Cli         diagnostics for the cable path
 tests/                   xunit
 ```
 
 ### Diagnostics
 
 ```powershell
-Dropzone.Cli status            # is a phone connected and unlocked?
-Dropzone.Cli scan              # list media the phone exposes
-Dropzone.Cli import <folder>   # run a full import
+DropZone.Cli status            # is a phone connected and unlocked?
+DropZone.Cli scan              # list media the phone exposes
+DropZone.Cli import <folder>   # run a full import
 ```
 
 ## Networking notes
@@ -163,7 +163,7 @@ The status line at the bottom of the panel shows which addresses are actually jo
 - The cable path's `MediaDevicesPhoneSource` has **not** been verified against a real
   unlocked iPhone yet. Everything above it is covered by tests using a fake source.
 - Interoperability with the official LocalSend apps is **untested** — the transfer tests
-  run Dropzone against Dropzone.
+  run DropZone against DropZone.
 - No PIN support on incoming transfers, and no per-transfer accept prompt in the UI
   (`ApproveTransfer` exists as a hook, defaulting to accept).
 

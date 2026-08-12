@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Removes Dropzone.
+    Removes DropZone.
 
 .DESCRIPTION
     Stops the app, removes the install folder, the Start Menu shortcut and the autostart
@@ -8,11 +8,11 @@
 
 .EXAMPLE
     .\uninstall.ps1
-    .\uninstall.ps1 -InstallDir 'B:\Dropzone' -RemoveData
+    .\uninstall.ps1 -InstallDir 'B:\DropZone' -RemoveData
 #>
 [CmdletBinding()]
 param(
-    [string]$InstallDir = 'B:\Dropzone',
+    [string]$InstallDir = 'B:\DropZone',
     [switch]$RemoveData
 )
 
@@ -20,10 +20,10 @@ $ErrorActionPreference = 'Stop'
 
 function Say($text) { Write-Host "  $text" }
 
-Write-Host "Dropzone uninstaller" -ForegroundColor Cyan
+Write-Host "DropZone uninstaller" -ForegroundColor Cyan
 
 # --- stop -------------------------------------------------------------------
-$running = Get-Process -Name 'Dropzone.App' -ErrorAction SilentlyContinue
+$running = Get-Process -Name 'DropZone.App' -ErrorAction SilentlyContinue
 if ($running) {
     $running | Stop-Process -Force
     Start-Sleep -Seconds 2
@@ -32,13 +32,13 @@ if ($running) {
 
 # --- autostart --------------------------------------------------------------
 $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
-if (Get-ItemProperty -Path $runKey -Name 'Dropzone' -ErrorAction SilentlyContinue) {
-    Remove-ItemProperty -Path $runKey -Name 'Dropzone'
+if (Get-ItemProperty -Path $runKey -Name 'DropZone' -ErrorAction SilentlyContinue) {
+    Remove-ItemProperty -Path $runKey -Name 'DropZone'
     Say "autostart entry removed"
 }
 
 # --- shortcut ---------------------------------------------------------------
-$shortcut = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Dropzone.lnk'
+$shortcut = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\DropZone.lnk'
 if (Test-Path $shortcut) {
     Remove-Item $shortcut -Force
     Say "Start Menu shortcut removed"
@@ -53,8 +53,8 @@ if (Test-Path $InstallDir) {
 }
 
 # --- settings and data ------------------------------------------------------
-$settings = Join-Path $env:APPDATA 'Dropzone'
-$data = Join-Path $env:USERPROFILE 'Dropzone'
+$settings = Join-Path $env:APPDATA 'DropZone'
+$data = Join-Path $env:USERPROFILE 'DropZone'
 
 if ($RemoveData) {
     foreach ($path in @($settings, $data)) {
