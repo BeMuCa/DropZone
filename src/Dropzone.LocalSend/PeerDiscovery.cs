@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
@@ -12,14 +13,17 @@ public sealed record Peer(string Alias, string Fingerprint, IPAddress Address, i
 }
 
 /// <summary>
-/// UDP multicast announce/listen on 224.0.0.167:53317. Announcing with "announce": true asks
-/// peers to reply; a peer that hears us replies with "announce": false so both sides learn
-/// about each other without polling.
+/// UDP multicast announce/listen on 224.0.0.167:53317.
+///
+/// Both the join and the send are done per interface, on purpose. Letting Windows choose picks by
+/// route metric, and a Hyper-V/WSL virtual adapter advertises 10 Gbps against real WiFi's ~780 Mbps
+/// — so the default choice announces into the virtual network where no phone can ever hear it.
 /// </summary>
 public sealed class PeerDiscovery : IDisposable
 {
     readonly DeviceInfo _self;
-    readonly UdpClient _udp;
+    readonly UdpClient _listener;
+    readonly IPAddress _group;
     readonly IPEndPoint _multicastEndpoint;
     readonly ConcurrentDictionary<string, Peer> _peers = new();
     CancellationTokenSource? _cts;
@@ -28,35 +32,69 @@ public sealed class PeerDiscovery : IDisposable
 
     public IReadOnlyCollection<Peer> Peers => _peers.Values.ToArray();
 
-    public PeerDiscovery(DeviceInfo self)
-    {
-        _self = self;
-        var group = IPAddress.Parse(LocalSendProtocol.MulticastAddress);
-        _multicastEndpoint = new IPEndPoint(group, LocalSendProtocol.DefaultPort);
-
-        _udp = new UdpClient(AddressFamily.InterNetwork);
-        _udp.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
-
-        try
-        {
-            _udp.Client.Bind(new IPEndPoint(IPAddress.Any, LocalSendProtocol.DefaultPort));
-            _udp.JoinMulticastGroup(group);
-            _udp.MulticastLoopback = false;
-        }
-        catch (SocketException ex)
-        {
-            // Another LocalSend-speaking app already owns the discovery port. Sending still works;
-            // we simply will not hear announcements, so the app stays usable instead of dying.
-            _udp.Dispose();
-            _udp = new UdpClient(AddressFamily.InterNetwork);
-            BindFailure = ex.Message;
-        }
-    }
+    /// <summary>Interfaces we actually joined on — surfaced so the UI can explain a silent network.</summary>
+    public IReadOnlyList<IPAddress> JoinedInterfaces { get; private set; } = [];
 
     /// <summary>Non-null when the discovery port could not be bound — listening is disabled.</summary>
     public string? BindFailure { get; }
 
     public bool CanListen => BindFailure is null;
+
+    public PeerDiscovery(DeviceInfo self)
+    {
+        _self = self;
+        _group = IPAddress.Parse(LocalSendProtocol.MulticastAddress);
+        _multicastEndpoint = new IPEndPoint(_group, LocalSendProtocol.DefaultPort);
+
+        _listener = new UdpClient(AddressFamily.InterNetwork);
+        _listener.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+
+        try
+        {
+            _listener.Client.Bind(new IPEndPoint(IPAddress.Any, LocalSendProtocol.DefaultPort));
+            JoinedInterfaces = JoinOnEveryInterface();
+        }
+        catch (SocketException ex)
+        {
+            // Another LocalSend-speaking app already owns the discovery port. Sending still works;
+            // we simply will not hear announcements, so the app stays usable instead of dying.
+            _listener.Dispose();
+            _listener = new UdpClient(AddressFamily.InterNetwork);
+            BindFailure = ex.Message;
+        }
+    }
+
+    IReadOnlyList<IPAddress> JoinOnEveryInterface()
+    {
+        var joined = new List<IPAddress>();
+
+        foreach (var address in UsableInterfaceAddresses())
+        {
+            try
+            {
+                _listener.JoinMulticastGroup(_group, address);
+                joined.Add(address);
+            }
+            catch (SocketException)
+            {
+                // Some adapters refuse the join (disconnected, no multicast). Skip and keep going.
+            }
+        }
+
+        return joined;
+    }
+
+    /// <summary>Every up, multicast-capable, non-loopback IPv4 address on this machine.</summary>
+    public static IReadOnlyList<IPAddress> UsableInterfaceAddresses() =>
+        NetworkInterface.GetAllNetworkInterfaces()
+            .Where(n => n.OperationalStatus == OperationalStatus.Up
+                        && n.NetworkInterfaceType != NetworkInterfaceType.Loopback
+                        && n.SupportsMulticast)
+            .SelectMany(n => n.GetIPProperties().UnicastAddresses)
+            .Where(a => a.Address.AddressFamily == AddressFamily.InterNetwork)
+            .Select(a => a.Address)
+            .Distinct()
+            .ToList();
 
     public void Start()
     {
@@ -66,7 +104,7 @@ public sealed class PeerDiscovery : IDisposable
         _ = ListenAsync(_cts.Token);
     }
 
-    /// <summary>Broadcasts our presence and asks peers to announce themselves back.</summary>
+    /// <summary>Broadcasts our presence on every interface and asks peers to announce themselves back.</summary>
     public Task AnnounceAsync() => SendAsync(announce: true);
 
     async Task SendAsync(bool announce)
@@ -85,7 +123,25 @@ public sealed class PeerDiscovery : IDisposable
         };
 
         var bytes = JsonSerializer.SerializeToUtf8Bytes(payload, LocalSendJson.Options);
-        await _udp.SendAsync(bytes, bytes.Length, _multicastEndpoint);
+
+        foreach (var address in UsableInterfaceAddresses())
+        {
+            try
+            {
+                // Binding the sender to a specific local address forces the datagram out of that
+                // interface instead of whichever one the routing table prefers.
+                using var sender = new UdpClient(new IPEndPoint(address, 0));
+                sender.Client.SetSocketOption(
+                    SocketOptionLevel.IP, SocketOptionName.MulticastInterface,
+                    address.GetAddressBytes());
+
+                await sender.SendAsync(bytes, bytes.Length, _multicastEndpoint);
+            }
+            catch (SocketException)
+            {
+                // One dead interface must not stop the others.
+            }
+        }
     }
 
     async Task ListenAsync(CancellationToken token)
@@ -95,10 +151,11 @@ public sealed class PeerDiscovery : IDisposable
             UdpReceiveResult result;
             try
             {
-                result = await _udp.ReceiveAsync(token);
+                result = await _listener.ReceiveAsync(token);
             }
             catch (OperationCanceledException) { return; }
             catch (SocketException) { continue; }
+            catch (ObjectDisposedException) { return; }
 
             DeviceInfo? info;
             try
@@ -121,7 +178,7 @@ public sealed class PeerDiscovery : IDisposable
             if (_peers.TryAdd(peer.Fingerprint, peer))
                 PeerFound?.Invoke(peer);
 
-            // Someone asked who is here — reply directly so they learn about us.
+            // Someone asked who is here — reply so they learn about us.
             if (info.Announce == true)
                 await SendAsync(announce: false);
         }
@@ -130,6 +187,6 @@ public sealed class PeerDiscovery : IDisposable
     public void Dispose()
     {
         _cts?.Cancel();
-        _udp.Dispose();
+        _listener.Dispose();
     }
 }

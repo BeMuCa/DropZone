@@ -77,6 +77,7 @@ public sealed class MediaRow(MtpItem item) : Notifier
 public sealed class ScriptRow(ScriptInfo info) : Notifier
 {
     bool _remoteEnabled = info.RemoteEnabled;
+    string _arguments = "";
 
     public ScriptInfo Info { get; } = info;
 
@@ -84,5 +85,12 @@ public sealed class ScriptRow(ScriptInfo info) : Notifier
     {
         get => _remoteEnabled;
         set => Set(ref _remoteEnabled, value);
+    }
+
+    /// <summary>Parameter typed in the UI and passed on the next manual run.</summary>
+    public string Arguments
+    {
+        get => _arguments;
+        set => Set(ref _arguments, value);
     }
 }

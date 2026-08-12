@@ -80,14 +80,21 @@ public partial class PopupWindow : Window
         RefreshScripts();
         RefreshPhoneStatus();
         StatusLine.Text = (Application.Current as App)?.StartupMessage
-                          ?? $"Saving to {_service.Settings.RootFolder}";
+                          ?? DescribeNetwork();
+    }
+
+    string DescribeNetwork()
+    {
+        var addresses = _service.ListeningOn;
+        return addresses.Count == 0
+            ? "Not listening on any network — check your connection"
+            : $"On {string.Join(", ", addresses)}";
     }
 
     void RefreshSwitches()
     {
         _suppressToggleEvents = true;
         ReceiveSwitch.IsChecked = _service.IsReceiving;
-        HeaderReceiveSwitch.IsChecked = _service.IsReceiving;
         RemoteScriptsSwitch.IsChecked = _service.Settings.AllowRemoteScripts;
         _suppressToggleEvents = false;
 
@@ -278,8 +285,6 @@ public partial class PopupWindow : Window
 
     void ReceiveSwitch_Changed(object sender, RoutedEventArgs e) => ApplyReceiveToggle(ReceiveSwitch.IsChecked == true);
 
-    void HeaderSwitch_Changed(object sender, RoutedEventArgs e) => ApplyReceiveToggle(HeaderReceiveSwitch.IsChecked == true);
-
     async void ApplyReceiveToggle(bool wanted)
     {
         if (_suppressToggleEvents) return;
@@ -438,12 +443,16 @@ public partial class PopupWindow : Window
 
     void RunScript_Click(object sender, RoutedEventArgs e)
     {
-        if ((sender as FrameworkElement)?.Tag is not ScriptInfo info) return;
+        if ((sender as FrameworkElement)?.Tag is not ScriptRow row) return;
+
+        var arguments = string.IsNullOrWhiteSpace(row.Arguments) ? null : row.Arguments.Trim();
 
         try
         {
-            ScriptRegistry.Run(info);
-            StatusLine.Text = $"Started {info.DisplayName}";
+            ScriptRegistry.Run(row.Info, arguments);
+            StatusLine.Text = arguments is null
+                ? $"Started {row.Info.DisplayName}"
+                : $"Started {row.Info.DisplayName} {arguments}";
         }
         catch (Exception ex)
         {
@@ -492,6 +501,4 @@ public partial class PopupWindow : Window
     }
 
     void Close_Click(object sender, RoutedEventArgs e) => Hide();
-
-    void Quit_Click(object sender, RoutedEventArgs e) => Application.Current.Shutdown();
 }

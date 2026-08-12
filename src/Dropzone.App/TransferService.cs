@@ -37,6 +37,7 @@ public sealed class TransferService : IAsyncDisposable
     {
         Settings = settings;
         settings.EnsureFolders();
+        ExampleScripts.SeedIfEmpty(settings.ScriptsFolder);
 
         History = new TransferHistory(settings.HistoryPath);
         Scripts = new ScriptRegistry(settings.ScriptsFolder, settings.ScriptConfigPath);
@@ -57,6 +58,9 @@ public sealed class TransferService : IAsyncDisposable
 
     /// <summary>Set when something started but degraded — shown in the UI rather than thrown.</summary>
     public string? StartupWarning { get; private set; }
+
+    /// <summary>Interfaces discovery actually joined on — empty means nobody can find us.</summary>
+    public IReadOnlyList<System.Net.IPAddress> ListeningOn => _discovery?.JoinedInterfaces ?? [];
 
     public async Task StartAsync()
     {
