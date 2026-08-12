@@ -17,6 +17,8 @@ public abstract class Notifier : INotifyPropertyChanged
         field = value;
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
     }
+
+    protected void Raise(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }
 
 public static class Human
@@ -77,7 +79,7 @@ public sealed class MediaRow(MtpItem item) : Notifier
     }
 }
 
-public sealed class ScriptRow(ScriptInfo info) : Notifier
+public sealed class ScriptRow(ScriptInfo info, ScriptRegistry registry) : Notifier
 {
     bool _remoteEnabled = info.RemoteEnabled;
     string _arguments = "";
@@ -94,6 +96,38 @@ public sealed class ScriptRow(ScriptInfo info) : Notifier
     public string Arguments
     {
         get => _arguments;
-        set => Set(ref _arguments, value);
+        set
+        {
+            Set(ref _arguments, value);
+            Raise(nameof(CallHint));
+            Raise(nameof(CommandLine));
+        }
+    }
+
+    /// <summary>Exactly what to send from the phone, so nobody has to open the file to find out.</summary>
+    public string CallHint => string.IsNullOrWhiteSpace(_arguments)
+        ? Info.HowToCall
+        : $"{Info.HowToCall} {_arguments.Trim()}";
+
+    /// <summary>The resolved command line, so a wrong interpreter is visible before it fails.</summary>
+    public string CommandLine =>
+        registry.CommandLineFor(Info, string.IsNullOrWhiteSpace(_arguments) ? null : _arguments);
+}
+
+/// <summary>One editable extension-to-interpreter mapping.</summary>
+public sealed class InterpreterRow(string extension, string command, Action<string, string> onChanged) : Notifier
+{
+    string _command = command;
+
+    public string Extension { get; } = extension;
+
+    public string Command
+    {
+        get => _command;
+        set
+        {
+            Set(ref _command, value);
+            onChanged(Extension, value);
+        }
     }
 }

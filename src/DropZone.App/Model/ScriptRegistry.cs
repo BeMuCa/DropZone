@@ -7,17 +7,45 @@ namespace DropZone.App.Model;
 public sealed record ScriptInfo(string Name, string Path, string Extension, bool RemoteEnabled)
 {
     public string DisplayName => System.IO.Path.GetFileNameWithoutExtension(Name);
+
+    /// <summary>What to type on the phone to start this. Shown in the UI so nobody has to guess.</summary>
+    public string HowToCall => DisplayName;
+}
+
+/// <summary>
+/// How a script file is launched, per extension. Editable so a machine with `python` but no
+/// `py` launcher, or a preference for pwsh over powershell, is a settings change not a rebuild.
+/// </summary>
+public static class DefaultInterpreters
+{
+    public static Dictionary<string, string> Create() => new(StringComparer.OrdinalIgnoreCase)
+    {
+        [".ps1"] = "powershell -NoProfile -ExecutionPolicy Bypass -File",
+        [".py"] = "py -3",
+        [".bat"] = "cmd /c",
+        [".cmd"] = "cmd /c",
+        [".js"] = "node",
+        [".sh"] = "bash"
+    };
 }
 
 /// <summary>
 /// Scripts live in the Scripts/ folder. Remote invocation is opt-in per script and additionally
 /// gated by a master switch — a device on the LAN can only ever start something explicitly ticked.
 /// </summary>
-public sealed class ScriptRegistry(string scriptsFolder, string configPath)
+public sealed class ScriptRegistry(
+    string scriptsFolder,
+    string configPath,
+    IReadOnlyDictionary<string, string>? interpreters = null)
 {
-    static readonly string[] Extensions = [".ps1", ".bat", ".cmd"];
+    readonly IReadOnlyDictionary<string, string> _interpreters = interpreters ?? DefaultInterpreters.Create();
 
     Dictionary<string, bool> _remoteEnabled = Read(configPath);
+
+    public IReadOnlyDictionary<string, string> Interpreters => _interpreters;
+
+    /// <summary>Extensions we know how to launch — driven by the interpreter map, not hardcoded.</summary>
+    public IReadOnlyCollection<string> KnownExtensions => _interpreters.Keys.ToList();
 
     static Dictionary<string, bool> Read(string path)
     {
@@ -40,7 +68,7 @@ public sealed class ScriptRegistry(string scriptsFolder, string configPath)
         if (!Directory.Exists(scriptsFolder)) return [];
 
         return Directory.EnumerateFiles(scriptsFolder)
-            .Where(p => Extensions.Contains(Path.GetExtension(p), StringComparer.OrdinalIgnoreCase))
+            .Where(p => _interpreters.ContainsKey(Path.GetExtension(p)))
             .OrderBy(p => Path.GetFileName(p), StringComparer.OrdinalIgnoreCase)
             .Select(p => new ScriptInfo(
                 Path.GetFileName(p), p, Path.GetExtension(p),
@@ -77,18 +105,31 @@ public sealed class ScriptRegistry(string scriptsFolder, string configPath)
             (s.DisplayName.Equals(name, StringComparison.OrdinalIgnoreCase) ||
              s.Name.Equals(name, StringComparison.OrdinalIgnoreCase)));
 
-    public static Process? Run(ScriptInfo script, string? arguments = null)
+    /// <summary>The command line this script would be launched with, for display and for running.</summary>
+    public string CommandLineFor(ScriptInfo script, string? arguments = null)
     {
-        var info = script.Extension.ToLowerInvariant() switch
-        {
-            ".ps1" => new ProcessStartInfo("powershell.exe",
-                $"-NoProfile -ExecutionPolicy Bypass -File \"{script.Path}\" {arguments}".TrimEnd()),
-            _ => new ProcessStartInfo("cmd.exe", $"/c \"{script.Path}\" {arguments}".TrimEnd())
-        };
+        var prefix = _interpreters.TryGetValue(script.Extension, out var found) ? found : "";
+        var tail = string.IsNullOrWhiteSpace(arguments) ? "" : " " + arguments.Trim();
+        return $"{prefix} \"{script.Path}\"{tail}".TrimStart();
+    }
 
-        info.UseShellExecute = false;
-        info.CreateNoWindow = true;
-        info.WorkingDirectory = Path.GetDirectoryName(script.Path)!;
+    public Process? Run(ScriptInfo script, string? arguments = null)
+    {
+        if (!_interpreters.TryGetValue(script.Extension, out var prefix) || string.IsNullOrWhiteSpace(prefix))
+            throw new InvalidOperationException(
+                $"No interpreter configured for {script.Extension}. Add one in the Scripts tab.");
+
+        var parts = prefix.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var executable = parts[0];
+        var leadingArgs = parts.Length > 1 ? parts[1] + " " : "";
+        var tail = string.IsNullOrWhiteSpace(arguments) ? "" : " " + arguments.Trim();
+
+        var info = new ProcessStartInfo(executable, $"{leadingArgs}\"{script.Path}\"{tail}")
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WorkingDirectory = Path.GetDirectoryName(script.Path)!
+        };
 
         return Process.Start(info);
     }

@@ -57,14 +57,65 @@ public sealed class ScriptGateTests : IDisposable
         Assert.False(decision.IsAllowed);
     }
 
-    [Fact]
-    public void An_unknown_script_is_refused()
+    [Theory]
+    [InlineData("run somethingelse")]
+    [InlineData("somethingelse")]
+    [InlineData("running late, sorry")]
+    [InlineData("please run backup")]
+    public void A_name_matching_no_script_never_runs(string message)
     {
         MakeScript("backup.ps1", remoteEnabled: true);
 
-        var decision = ScriptGate.Evaluate("run somethingelse", allowRemoteScripts: true, Registry);
+        var decision = ScriptGate.Evaluate(message, allowRemoteScripts: true, Registry);
 
-        Assert.Equal(ScriptGateOutcome.NotEnabled, decision.Outcome);
+        Assert.False(decision.IsAllowed);
+        Assert.Equal(ScriptGateOutcome.NotACommand, decision.Outcome);
+    }
+
+    [Fact]
+    public void The_script_name_alone_is_enough()
+    {
+        MakeScript("backup.ps1", remoteEnabled: true);
+
+        var decision = ScriptGate.Evaluate("backup", allowRemoteScripts: true, Registry);
+
+        Assert.True(decision.IsAllowed);
+        Assert.Equal("backup.ps1", decision.Script!.Name);
+    }
+
+    [Fact]
+    public void Asking_for_help_is_recognised_and_runs_nothing()
+    {
+        MakeScript("backup.ps1", remoteEnabled: true);
+
+        var decision = ScriptGate.Evaluate("help", allowRemoteScripts: true, Registry);
+
+        Assert.Equal(ScriptGateOutcome.HelpRequested, decision.Outcome);
+        Assert.False(decision.IsAllowed);
+        Assert.Null(decision.Script);
+    }
+
+    [Fact]
+    public void The_help_reply_lists_only_remotely_enabled_scripts()
+    {
+        MakeScript("backup.ps1", remoteEnabled: true);
+        MakeScript("secret.ps1", remoteEnabled: false);
+
+        var reply = ScriptGate.BuildHelpReply(allowRemoteScripts: true, Registry);
+
+        Assert.Contains("backup", reply);
+        Assert.DoesNotContain("secret", reply);
+    }
+
+    [Fact]
+    public void The_help_reply_says_so_when_remote_is_off()
+    {
+        MakeScript("backup.ps1", remoteEnabled: true);
+
+        var reply = ScriptGate.BuildHelpReply(allowRemoteScripts: false, Registry);
+
+        Assert.Contains("switched off", reply);
+        Assert.DoesNotContain("backup", reply);
     }
 
     [Fact]

@@ -13,8 +13,12 @@ public sealed record ReceivedFile(FileDto File, string SavedPath, string Session
 public sealed record CompletedTransfer(
     string SessionId, DeviceInfo Sender, IReadOnlyList<ReceivedFile> Files, string Folder);
 
-/// <summary>A text message sent from a peer — LocalSend delivers these as small text/plain files.</summary>
-public sealed record ReceivedText(string Text, DeviceInfo Sender);
+/// <summary>
+/// A text message sent from a peer — LocalSend delivers these as small text/plain files.
+/// The address is carried so a reply can be sent without depending on discovery having
+/// already seen that device.
+/// </summary>
+public sealed record ReceivedText(string Text, DeviceInfo Sender, string RemoteAddress);
 
 /// <summary>
 /// The receiving half of the protocol: a Kestrel host exposing the four v2 endpoints.
@@ -133,7 +137,7 @@ public sealed class LocalSendReceiver : IAsyncDisposable
             FileReceived?.Invoke(received);
 
             if (LooksLikeText(file))
-                RaiseTextReceived(target, sender);
+                RaiseTextReceived(target, sender, RemoteAddress(ctx));
 
             lock (_bufferGate)
             {
@@ -188,11 +192,11 @@ public sealed class LocalSendReceiver : IAsyncDisposable
         ((file.FileType?.StartsWith("text/", StringComparison.OrdinalIgnoreCase) ?? false) ||
          Path.GetExtension(file.FileName).Equals(".txt", StringComparison.OrdinalIgnoreCase));
 
-    void RaiseTextReceived(string path, DeviceInfo sender)
+    void RaiseTextReceived(string path, DeviceInfo sender, string remoteAddress)
     {
         try
         {
-            TextReceived?.Invoke(new ReceivedText(File.ReadAllText(path).Trim(), sender));
+            TextReceived?.Invoke(new ReceivedText(File.ReadAllText(path).Trim(), sender, remoteAddress));
         }
         catch (IOException)
         {

@@ -16,6 +16,12 @@ public sealed class Settings
     /// <summary>Master switch for running scripts asked for by another device.</summary>
     public bool AllowRemoteScripts { get; set; }
 
+    /// <summary>
+    /// Extension to command-line prefix. DropZone appends the quoted script path and any
+    /// arguments, so ".py": "py -3" runs  py -3 "C:\...\Timer.py" 5.
+    /// </summary>
+    public Dictionary<string, string> Interpreters { get; set; } = Model.DefaultInterpreters.Create();
+
     public string ReceivedFolder => Path.Combine(RootFolder, "Received");
     public string SentFolder => Path.Combine(RootFolder, "Sent");
     public string PhotoFolder => Path.Combine(RootFolder, "iPhone");
@@ -41,7 +47,16 @@ public sealed class Settings
         try
         {
             if (File.Exists(ConfigPath))
-                return JsonSerializer.Deserialize<Settings>(File.ReadAllText(ConfigPath)) ?? new Settings();
+            {
+                var loaded = JsonSerializer.Deserialize<Settings>(File.ReadAllText(ConfigPath)) ?? new Settings();
+
+                // Settings written before a new extension was supported would otherwise never
+                // learn about it, so fill gaps rather than replacing what the user edited.
+                foreach (var (extension, command) in Model.DefaultInterpreters.Create())
+                    loaded.Interpreters.TryAdd(extension, command);
+
+                return loaded;
+            }
         }
         catch (Exception)
         {

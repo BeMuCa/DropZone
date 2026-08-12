@@ -26,6 +26,7 @@ public partial class PopupWindow : Window
     readonly ObservableCollection<MediaRow> _photos = [];
     readonly ObservableCollection<MediaRow> _videos = [];
     readonly ObservableCollection<ScriptRow> _scripts = [];
+    readonly ObservableCollection<InterpreterRow> _interpreters = [];
 
     readonly System.Collections.Concurrent.ConcurrentQueue<MtpItem> _incoming = new();
     CancellationTokenSource? _phoneCts;
@@ -45,6 +46,7 @@ public partial class PopupWindow : Window
         PhotoList.ItemsSource = _photos;
         VideoList.ItemsSource = _videos;
         ScriptList.ItemsSource = _scripts;
+        InterpreterList.ItemsSource = _interpreters;
 
         _service.PeersChanged += () => Dispatcher.Invoke(RefreshPeers);
         _service.HistoryChanged += () => Dispatcher.Invoke(RefreshHistory);
@@ -493,8 +495,25 @@ public partial class PopupWindow : Window
     void RefreshScripts()
     {
         _scripts.Clear();
-        foreach (var s in _service.Scripts.All()) _scripts.Add(new ScriptRow(s));
+        foreach (var s in _service.Scripts.All()) _scripts.Add(new ScriptRow(s, _service.Scripts));
         NoScriptsText.Visibility = _scripts.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+
+        if (_interpreters.Count == 0)
+        {
+            foreach (var (extension, command) in _service.Settings.Interpreters.OrderBy(p => p.Key))
+                _interpreters.Add(new InterpreterRow(extension, command, OnInterpreterChanged));
+        }
+    }
+
+    void OnInterpreterChanged(string extension, string command)
+    {
+        _service.Settings.Interpreters[extension] = command;
+        _service.Settings.Save();
+
+        // The registry shares this dictionary instance, so rebuilding the rows is enough to
+        // show the new command line.
+        RefreshScripts();
+        StatusLine.Text = $"{extension} now runs with: {command}";
     }
 
     void ReloadScripts_Click(object sender, RoutedEventArgs e)
@@ -517,7 +536,7 @@ public partial class PopupWindow : Window
 
         try
         {
-            ScriptRegistry.Run(row.Info, arguments);
+            _service.Scripts.Run(row.Info, arguments);
             StatusLine.Text = arguments is null
                 ? $"Started {row.Info.DisplayName}"
                 : $"Started {row.Info.DisplayName} {arguments}";

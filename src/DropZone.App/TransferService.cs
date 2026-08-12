@@ -39,8 +39,12 @@ public sealed class TransferService : IAsyncDisposable
         settings.EnsureFolders();
         ExampleScripts.SeedIfEmpty(settings.ScriptsFolder);
 
+        // Write settings back on every start so the file always shows the current defaults —
+        // otherwise the interpreter map is invisible until someone edits one in the UI.
+        settings.Save();
+
         History = new TransferHistory(settings.HistoryPath);
-        Scripts = new ScriptRegistry(settings.ScriptsFolder, settings.ScriptConfigPath);
+        Scripts = new ScriptRegistry(settings.ScriptsFolder, settings.ScriptConfigPath, settings.Interpreters);
 
         _certificate = SelfSignedCertificate.Create("dropzone");
 
@@ -157,22 +161,54 @@ public sealed class TransferService : IAsyncDisposable
 
         if (decision.Outcome == ScriptGateOutcome.NotACommand) return;
 
+        if (decision.Outcome == ScriptGateOutcome.HelpRequested)
+        {
+            _ = ReplyAsync(message, ScriptGate.BuildHelpReply(Settings.AllowRemoteScripts, Scripts));
+            ScriptInvoked?.Invoke(new ScriptInvocation("help", message.Sender.Alias, true, "Sent command list"));
+            return;
+        }
+
         if (!decision.IsAllowed)
         {
             ScriptInvoked?.Invoke(new ScriptInvocation(
                 message.Text, message.Sender.Alias, false, decision.Detail));
+            _ = ReplyAsync(message, $"DropZone: {decision.Detail}. Send \"help\" to see what is available.");
             return;
         }
 
         var script = decision.Script!;
         try
         {
-            ScriptRegistry.Run(script, decision.Arguments);
+            Scripts.Run(script, decision.Arguments);
             ScriptInvoked?.Invoke(new ScriptInvocation(script.DisplayName, message.Sender.Alias, true, "Started"));
+            _ = ReplyAsync(message, $"DropZone: started {script.HowToCall}.");
         }
         catch (Exception ex)
         {
             ScriptInvoked?.Invoke(new ScriptInvocation(script.DisplayName, message.Sender.Alias, false, ex.Message));
+            _ = ReplyAsync(message, $"DropZone: {script.HowToCall} failed - {ex.Message}");
+        }
+    }
+
+    /// <summary>Answers the device that sent a command, using the address the request arrived on.</summary>
+    async Task ReplyAsync(ReceivedText message, string text)
+    {
+        try
+        {
+            if (!System.Net.IPAddress.TryParse(message.RemoteAddress, out var address)) return;
+
+            var peer = new Peer(
+                message.Sender.Alias,
+                message.Sender.Fingerprint,
+                address,
+                message.Sender.Port ?? LocalSendProtocol.DefaultPort,
+                message.Sender.Protocol ?? "https");
+
+            await SendTextAsync(peer, text, recordInHistory: false);
+        }
+        catch (Exception)
+        {
+            // A reply is a courtesy; failing to deliver it must not affect the command itself.
         }
     }
 
@@ -203,7 +239,7 @@ public sealed class TransferService : IAsyncDisposable
     }
 
     /// <summary>Sends a plain text message — this is how a script is triggered on another device.</summary>
-    public async Task SendTextAsync(Peer peer, string text)
+    public async Task SendTextAsync(Peer peer, string text, bool recordInHistory = true)
     {
         var temp = Path.Combine(Path.GetTempPath(), $"dropzone-message-{Guid.NewGuid():N}.txt");
         await File.WriteAllTextAsync(temp, text);
@@ -212,12 +248,28 @@ public sealed class TransferService : IAsyncDisposable
         {
             using var sender = new LocalSendSender(_self);
             await sender.SendAsync(peer, [temp]);
+
+            if (recordInHistory)
+            {
+                History.Add(new TransferEntry
+                {
+                    Direction = TransferDirection.Sent,
+                    PeerAlias = peer.Alias,
+                    PeerKind = PeerKind.Unknown,
+                    When = DateTime.Now,
+                    Files = [new TransferFile(Shorten(text), temp, text.Length)]
+                });
+
+                HistoryChanged?.Invoke();
+            }
         }
         finally
         {
             File.Delete(temp);
         }
     }
+
+    static string Shorten(string text) => text.Length <= 40 ? text : text[..37] + "...";
 
     public PhoneStatus PhoneStatus() => _phone.Status();
 

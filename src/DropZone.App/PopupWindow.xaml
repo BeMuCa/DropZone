@@ -442,9 +442,32 @@
                                                     <StackPanel>
                                                         <TextBlock Text="{Binding Info.Name}" FontSize="10"
                                                                    Foreground="#9AA0A6" Margin="0,0,0,6"/>
+
+                                                        <TextBlock Text="Parameter" FontSize="10"
+                                                                   Foreground="#9AA0A6" Margin="0,0,0,3"/>
                                                         <TextBox Text="{Binding Arguments, UpdateSourceTrigger=PropertyChanged}"
                                                                  Margin="0,0,0,8"
-                                                                 ToolTip="Parameter passed to the script"/>
+                                                                 ToolTip="Passed to the script after its path"/>
+
+                                                        <TextBlock Text="Send this from your phone" FontSize="10"
+                                                                   Foreground="#9AA0A6" Margin="0,0,0,3"/>
+                                                        <Border Background="#26282C" CornerRadius="6" Padding="7,5"
+                                                                Margin="0,0,0,8">
+                                                            <TextBox Text="{Binding CallHint, Mode=OneWay}"
+                                                                     IsReadOnly="True" Background="Transparent"
+                                                                     Foreground="#58A6FF" FontFamily="Consolas"
+                                                                     FontSize="12" BorderThickness="0" Padding="0"
+                                                                     ToolTip="Send exactly this as a LocalSend text message"/>
+                                                        </Border>
+
+                                                        <Expander Header="Runs" Foreground="#9AA0A6" FontSize="10"
+                                                                  Margin="0,0,0,8">
+                                                            <TextBox Text="{Binding CommandLine, Mode=OneWay}"
+                                                                     IsReadOnly="True" Background="#26282C"
+                                                                     Foreground="#9AA0A6" FontFamily="Consolas"
+                                                                     FontSize="10" BorderThickness="0" Padding="7,5"
+                                                                     TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                                        </Expander>
                                                         <Grid>
                                                             <StackPanel Orientation="Horizontal">
                                                                 <Button Content="Run" Padding="12,5" FontSize="11"
@@ -472,7 +495,31 @@
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
                                 <TextBlock x:Name="NoScriptsText" Style="{StaticResource Muted}"
-                                           Text="No scripts yet — drop .ps1 or .bat files into the Scripts folder"/>
+                                           Text="No scripts yet — drop .ps1, .py or .bat files into the Scripts folder"/>
+
+                                <Expander Header="Interpreters" Foreground="#9AA0A6" FontSize="11" Margin="0,10,0,0">
+                                    <StackPanel Margin="0,6,0,0">
+                                        <TextBlock Style="{StaticResource Muted}" Margin="0,0,0,6"
+                                                   Text="How each file type is launched. The script path and any parameter are appended."/>
+                                        <ItemsControl x:Name="InterpreterList">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Grid Margin="0,0,0,4">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="52"/>
+                                                            <ColumnDefinition Width="*"/>
+                                                        </Grid.ColumnDefinitions>
+                                                        <TextBlock Grid.Column="0" Text="{Binding Extension}"
+                                                                   Foreground="#F0F2F5" FontFamily="Consolas"
+                                                                   FontSize="11" VerticalAlignment="Center"/>
+                                                        <TextBox Grid.Column="1" FontFamily="Consolas" FontSize="11"
+                                                                 Text="{Binding Command, UpdateSourceTrigger=LostFocus}"/>
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </Expander>
                             </StackPanel>
                         </ScrollViewer>
                     </DockPanel>

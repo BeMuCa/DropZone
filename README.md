@@ -65,23 +65,48 @@ Quit from the tray icon's right-click menu.
 
 ## Scripts
 
-Scripts live in `%USERPROFILE%\DropZone\Scripts` (`.ps1`, `.bat`, `.cmd`). A `Timer.ps1`
-example is created on first run.
+Scripts live in `%USERPROFILE%\DropZone\Scripts`. `Timer.ps1` and `Commands.ps1` are created
+on first run.
 
-To start one from your phone, send a LocalSend **text message**:
+To start one from your phone, send a LocalSend **text message** with the script name:
 
 ```
-run Timer 5
+Timer 5
 ```
 
-Three things must all be true before anything executes:
+That is the whole command — no prefix needed. `run Timer 5` also works if you prefer it. The
+Scripts tab shows the exact text to send for each script, so you never have to open the file
+to find out.
+
+Send **`help`** and DropZone texts back the list of everything you are allowed to start.
+
+### What may run
+
+Two things must both be true before anything executes:
 
 1. **Remote start** is on in the Scripts tab (off by default)
 2. that specific script has **Remote** ticked (off by default)
-3. the message *begins* with `run`
 
-A message that merely mentions the word — `running late, sorry`, or a document containing
-`run backup` on a later line — is never treated as a command.
+Anything else is an ordinary message. A word matching no enabled script does nothing, and
+only the **first line** is ever considered, so a pasted document cannot smuggle a command in
+further down.
+
+### Interpreters
+
+Each extension maps to a command line, editable under **Interpreters** in the Scripts tab and
+stored in `settings.json`:
+
+| Extension | Default |
+|---|---|
+| `.ps1` | `powershell -NoProfile -ExecutionPolicy Bypass -File` |
+| `.py` | `py -3` |
+| `.bat`, `.cmd` | `cmd /c` |
+| `.js` | `node` |
+| `.sh` | `bash` |
+
+DropZone appends the quoted script path and any parameter, so `.py` runs
+`py -3 "C:\...\Timer.py" 5`. Change `py -3` to `python3`, or point `.ps1` at `pwsh`, if you
+prefer — the Scripts tab shows the resolved command line under **Runs**.
 
 ## Why the cable is one-way
 

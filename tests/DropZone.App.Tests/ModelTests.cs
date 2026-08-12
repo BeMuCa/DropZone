@@ -19,15 +19,42 @@ public class ScriptCommandParserTests
     }
 
     [Theory]
+    [InlineData("backup", "backup", null)]
+    [InlineData("Timer 5", "Timer", "5")]
+    [InlineData("play-spotify Bohemian Rhapsody", "play-spotify", "Bohemian Rhapsody")]
+    public void The_run_prefix_is_optional(string message, string script, string? args)
+    {
+        Assert.True(ScriptCommandParser.TryParse(message, out var command));
+        Assert.Equal(script, command.ScriptName);
+        Assert.Equal(args, command.Arguments);
+    }
+
+    [Theory]
     [InlineData("")]
     [InlineData("   ")]
-    [InlineData("backup")]
     [InlineData("run")]
-    [InlineData("please run backup")]
-    [InlineData("running late, sorry")]
-    public void Ignores_ordinary_text(string message)
+    public void Nothing_to_name_is_not_a_command(string message)
     {
         Assert.False(ScriptCommandParser.TryParse(message, out _));
+    }
+
+    [Theory]
+    [InlineData("help")]
+    [InlineData("Help")]
+    [InlineData("commands")]
+    [InlineData("?")]
+    [InlineData("run help")]
+    public void Recognises_a_request_for_the_command_list(string message)
+    {
+        Assert.True(ScriptCommandParser.IsHelpRequest(message));
+    }
+
+    [Theory]
+    [InlineData("Timer 5")]
+    [InlineData("helpful hints")]
+    public void Ordinary_messages_are_not_help_requests(string message)
+    {
+        Assert.False(ScriptCommandParser.IsHelpRequest(message));
     }
 
     [Theory]
@@ -48,9 +75,13 @@ public class ScriptCommandParserTests
     }
 
     [Fact]
-    public void A_document_that_merely_contains_run_is_not_a_command()
+    public void A_command_on_a_later_line_is_never_reached()
     {
-        Assert.False(ScriptCommandParser.TryParse("Dear team,\nrun backup tonight please", out _));
+        // Safety for pasted documents now rests on this plus the gate's whitelist, not on
+        // requiring a "run" prefix.
+        Assert.True(ScriptCommandParser.TryParse("Dear team,\nrun backup tonight please", out var command));
+        Assert.Equal("Dear", command.ScriptName);
+        Assert.DoesNotContain("backup", command.Arguments ?? "");
     }
 }
 
