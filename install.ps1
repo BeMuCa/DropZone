@@ -42,8 +42,19 @@ if (-not $Source -or -not (Test-Path (Join-Path $Source 'Dropzone.App.exe'))) {
 Say "source: $Source"
 
 # --- prerequisite -----------------------------------------------------------
-$runtime = & dotnet --list-runtimes 2>$null | Select-String 'Microsoft.WindowsDesktop.App 10\.'
-if (-not $runtime) {
+# Missing dotnet is the normal case for someone who only downloaded the release, so this
+# check must never be the thing that stops the install.
+$runtimeFound = $false
+if (Get-Command dotnet -ErrorAction SilentlyContinue) {
+    try {
+        $runtimeFound = [bool](& dotnet --list-runtimes 2>$null |
+            Select-String 'Microsoft\.WindowsDesktop\.App 10\.')
+    } catch {
+        $runtimeFound = $false
+    }
+}
+
+if (-not $runtimeFound) {
     Write-Warning "The .NET 10 Desktop Runtime was not detected. Dropzone needs it to run."
     Write-Warning "Install it with:  winget install Microsoft.DotNet.DesktopRuntime.10"
 }
