@@ -16,7 +16,8 @@
 param(
     [string]$InstallDir = 'B:\DropZone',
     [string]$Source,
-    [switch]$Autostart
+    [switch]$Autostart,
+    [switch]$Quiet
 )
 
 $ErrorActionPreference = 'Stop'
@@ -68,8 +69,15 @@ if ($running) {
 }
 
 # --- ask where to put it ----------------------------------------------------
-# Only when the caller did not say; passing -InstallDir keeps this fully scriptable.
-if (-not $PSBoundParameters.ContainsKey('InstallDir') -and [Environment]::UserInteractive) {
+# Only when the caller did not say, and only when there is a real console to answer on.
+# Read-Host ignores piped stdin and blocks forever, so a redirected or non-interactive
+# host must fall straight through to the default rather than hang the install.
+$canPrompt = -not $PSBoundParameters.ContainsKey('InstallDir') -and
+             -not $Quiet -and
+             [Environment]::UserInteractive -and
+             -not [Console]::IsInputRedirected
+
+if ($canPrompt) {
     $answer = Read-Host "Install location [$InstallDir]"
     if ($answer) { $InstallDir = $answer }
 }
