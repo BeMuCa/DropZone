@@ -46,16 +46,16 @@ public static class Human
 public sealed class PeerRow(Peer peer)
 {
     public Peer Peer { get; } = peer;
-    public string Display => $"{peer.Alias}  ({peer.Address})";
+    public string Display => $"{Peer.Alias}  ({Peer.Address})";
 }
 
 public sealed class HistoryRow(TransferEntry entry)
 {
     public TransferEntry Entry { get; } = entry;
-    public string Glyph => PeerKindMapper.Glyph(entry.PeerKind);
-    public string Summary => entry.Summary;
-    public string Detail => $"{entry.PeerAlias} · {Human.When(entry.When)}";
-    public string SizeText => Human.Bytes(entry.TotalBytes);
+    public string Glyph => PeerKindMapper.Glyph(Entry.PeerKind);
+    public string Summary => Entry.Summary;
+    public string Detail => $"{Entry.PeerAlias} · {Human.When(Entry.When)}";
+    public string SizeText => Human.Bytes(Entry.TotalBytes);
 }
 
 public sealed class MediaRow(MtpItem item) : Notifier
@@ -63,9 +63,9 @@ public sealed class MediaRow(MtpItem item) : Notifier
     bool _selected;
 
     public MtpItem Item { get; } = item;
-    public string Name => item.Name;
-    public string SizeText => Human.Bytes(item.Size);
-    public string DateText => item.Modified?.ToString("d MMM yyyy") ?? "";
+    public string Name => Item.Name;
+    public string SizeText => Human.Bytes(Item.Size);
+    public string DateText => Item.Modified?.ToString("d MMM yyyy") ?? "";
 
     public bool Selected
     {
