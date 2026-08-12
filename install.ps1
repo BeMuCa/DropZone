@@ -85,7 +85,7 @@ New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
 Copy-Item -Path (Join-Path $Source '*') -Destination $InstallDir -Recurse -Force
 Say "installed to $InstallDir"
 
-# The uninstaller belongs next to the program, not wherever the zip was unpacked —
+# The uninstaller belongs next to the program, not wherever the zip was unpacked -
 # that folder is usually long gone by the time someone wants to remove this.
 $uninstaller = Join-Path $Source 'uninstall.ps1'
 if (-not (Test-Path $uninstaller)) { $uninstaller = Join-Path $PSScriptRoot 'uninstall.ps1' }
@@ -93,7 +93,7 @@ if (Test-Path $uninstaller) {
     Copy-Item $uninstaller -Destination $InstallDir -Force
     Say "uninstaller placed in $InstallDir"
 } else {
-    Write-Warning "uninstall.ps1 not found — you will have to delete $InstallDir by hand."
+    Write-Warning "uninstall.ps1 not found - you will have to delete $InstallDir by hand."
 }
 
 $exe = Join-Path $InstallDir 'DropZone.App.exe'
@@ -105,7 +105,7 @@ $shell = New-Object -ComObject WScript.Shell
 $link = $shell.CreateShortcut($shortcut)
 $link.TargetPath = $exe
 $link.WorkingDirectory = $InstallDir
-$link.Description = 'DropZone — phone and PC file transfer'
+$link.Description = 'DropZone - phone and PC file transfer'
 $link.Save()
 Say "Start Menu shortcut created"
 
