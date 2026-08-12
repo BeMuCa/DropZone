@@ -6,6 +6,7 @@
     <Project Path="src/Dropzone.Mtp/Dropzone.Mtp.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Dropzone.App.Tests/Dropzone.App.Tests.csproj" />
     <Project Path="tests/Dropzone.LocalSend.Tests/Dropzone.LocalSend.Tests.csproj" />
     <Project Path="tests/Dropzone.Mtp.Tests/Dropzone.Mtp.Tests.csproj" />
   </Folder>

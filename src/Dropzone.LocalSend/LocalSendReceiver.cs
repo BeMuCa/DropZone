@@ -8,19 +8,29 @@ using Microsoft.Extensions.Logging;
 
 namespace Dropzone.LocalSend;
 
-public sealed record ReceivedFile(FileDto File, string SavedPath);
+public sealed record ReceivedFile(FileDto File, string SavedPath, string SessionId, DeviceInfo Sender);
+
+public sealed record CompletedTransfer(
+    string SessionId, DeviceInfo Sender, IReadOnlyList<ReceivedFile> Files, string Folder);
+
+/// <summary>A text message sent from a peer — LocalSend delivers these as small text/plain files.</summary>
+public sealed record ReceivedText(string Text, DeviceInfo Sender);
 
 /// <summary>
 /// The receiving half of the protocol: a Kestrel host exposing the four v2 endpoints.
 /// </summary>
 public sealed class LocalSendReceiver : IAsyncDisposable
 {
+    const long MaxTextMessageBytes = 8 * 1024;
+
     readonly DeviceInfo _self;
     readonly X509Certificate2 _certificate;
     readonly SessionStore _sessions = new();
+    readonly Lock _bufferGate = new();
+    readonly Dictionary<string, List<ReceivedFile>> _bySession = [];
     WebApplication? _app;
 
-    /// <summary>Where incoming files are written. Read on each upload so the user can change it live.</summary>
+    /// <summary>Root for incoming files. Each transfer lands in its own dated subfolder.</summary>
     public Func<string> DownloadFolder { get; set; } = () =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
 
@@ -28,6 +38,8 @@ public sealed class LocalSendReceiver : IAsyncDisposable
     public Func<PrepareUploadRequest, bool> ApproveTransfer { get; set; } = _ => true;
 
     public event Action<ReceivedFile>? FileReceived;
+    public event Action<CompletedTransfer>? TransferCompleted;
+    public event Action<ReceivedText>? TextReceived;
     public event Action<PrepareUploadRequest>? TransferRequested;
 
     public LocalSendReceiver(DeviceInfo self, X509Certificate2 certificate)
@@ -79,7 +91,9 @@ public sealed class LocalSendReceiver : IAsyncDisposable
 
             try
             {
-                var session = _sessions.Create(request.Files, RemoteAddress(ctx));
+                var session = _sessions.Create(request.Files, RemoteAddress(ctx), request.Info);
+                lock (_bufferGate) _bySession[session.SessionId] = [];
+
                 return Results.Json(
                     new PrepareUploadResponse
                     {
@@ -106,7 +120,8 @@ public sealed class LocalSendReceiver : IAsyncDisposable
             if (!_sessions.TryValidate(sessionId, fileId, token, RemoteAddress(ctx), out var file))
                 return Results.StatusCode(StatusCodes.Status403Forbidden);
 
-            var folder = DownloadFolder();
+            var sender = _sessions.Active?.Sender ?? new DeviceInfo { Alias = "Unknown" };
+            var folder = FolderForSession(sessionId, sender);
             Directory.CreateDirectory(folder);
 
             var target = SafeFileName.Deduplicate(SafeFileName.ResolveInside(folder, file!.FileName));
@@ -114,18 +129,75 @@ public sealed class LocalSendReceiver : IAsyncDisposable
             await using (var output = File.Create(target))
                 await ctx.Request.Body.CopyToAsync(output);
 
-            FileReceived?.Invoke(new ReceivedFile(file, target));
+            var received = new ReceivedFile(file, target, sessionId, sender);
+            FileReceived?.Invoke(received);
+
+            if (LooksLikeText(file))
+                RaiseTextReceived(target, sender);
+
+            lock (_bufferGate)
+            {
+                if (_bySession.TryGetValue(sessionId, out var list)) list.Add(received);
+            }
+
+            if (_sessions.MarkReceived(sessionId, fileId) is { } finished)
+            {
+                List<ReceivedFile> files;
+                lock (_bufferGate)
+                {
+                    _bySession.Remove(sessionId, out var buffered);
+                    files = buffered ?? [];
+                }
+
+                TransferCompleted?.Invoke(new CompletedTransfer(sessionId, finished.Sender, files, folder));
+            }
+
             return Results.Ok();
         });
 
         app.MapPost(LocalSendProtocol.CancelPath, (HttpContext ctx) =>
         {
-            _sessions.Cancel(ctx.Request.Query["sessionId"].ToString());
+            var id = ctx.Request.Query["sessionId"].ToString();
+            _sessions.Cancel(id);
+            lock (_bufferGate) _bySession.Remove(id);
             return Results.Ok();
         });
 
         _app = app;
         await app.StartAsync();
+    }
+
+    readonly Dictionary<string, string> _sessionFolders = [];
+
+    string FolderForSession(string sessionId, DeviceInfo sender)
+    {
+        lock (_bufferGate)
+        {
+            if (_sessionFolders.TryGetValue(sessionId, out var existing)) return existing;
+
+            var stamp = DateTime.Now.ToString("yyyy-MM-dd HH-mm-ss");
+            var who = SafeFileName.Of(string.IsNullOrWhiteSpace(sender.Alias) ? "Unknown" : sender.Alias);
+            var folder = Path.Combine(DownloadFolder(), $"{stamp} {who}");
+            _sessionFolders[sessionId] = folder;
+            return folder;
+        }
+    }
+
+    static bool LooksLikeText(FileDto file) =>
+        file.Size <= MaxTextMessageBytes &&
+        ((file.FileType?.StartsWith("text/", StringComparison.OrdinalIgnoreCase) ?? false) ||
+         Path.GetExtension(file.FileName).Equals(".txt", StringComparison.OrdinalIgnoreCase));
+
+    void RaiseTextReceived(string path, DeviceInfo sender)
+    {
+        try
+        {
+            TextReceived?.Invoke(new ReceivedText(File.ReadAllText(path).Trim(), sender));
+        }
+        catch (IOException)
+        {
+            // Unreadable text is simply not a command.
+        }
     }
 
     DeviceInfo Response() => new()

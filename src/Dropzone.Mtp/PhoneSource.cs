@@ -41,7 +41,12 @@ public sealed class MediaDevicesPhoneSource : IPhoneSource
     public PhoneStatus Status()
     {
         var device = FindPhone();
-        if (device is null) return PhoneStatus.Absent;
+
+        // WPD hides a locked phone entirely, so ask Windows whether one is plugged in at all.
+        if (device is null)
+            return PnpPhoneDetector.IsPhysicallyAttached()
+                ? new PhoneStatus(true, false, "iPhone")
+                : PhoneStatus.Absent;
 
         try
         {

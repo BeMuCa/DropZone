@@ -10,9 +10,19 @@ public partial class App : Application
     TransferService? _service;
     PopupWindow? _popup;
 
+    static Mutex? _singleInstance;
+
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        // A second copy would fight the first for port 53317, so hand over to the running one.
+        _singleInstance = new Mutex(true, @"Local\Dropzone.SingleInstance", out var isFirstInstance);
+        if (!isFirstInstance)
+        {
+            Shutdown();
+            return;
+        }
 
         DispatcherUnhandledException += (_, args) =>
         {
@@ -38,10 +48,11 @@ public partial class App : Application
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"Could not start receiving: {ex.Message}", "Dropzone");
+            // Never block startup with a modal box — the tray tooltip carries the bad news.
+            _startupError = ex.Message;
         }
 
-        UpdateTrayIcon();
+        SyncTrayIcon();
     }
 
     ContextMenu BuildMenu()
@@ -49,12 +60,12 @@ public partial class App : Application
         var open = new MenuItem { Header = "Open" };
         open.Click += (_, _) => ShowPopup();
 
-        var toggle = new MenuItem { Header = "Receiving" };
+        var toggle = new MenuItem { Header = "Toggle receiving" };
         toggle.Click += async (_, _) =>
         {
             if (_service is null) return;
             await _service.SetReceivingAsync(!_service.IsReceiving);
-            UpdateTrayIcon();
+            SyncTrayIcon();
         };
 
         var quit = new MenuItem { Header = "Quit" };
@@ -82,17 +93,23 @@ public partial class App : Application
 
         _popup ??= new PopupWindow(_service);
         _popup.ShowInCorner();
-        UpdateTrayIcon();
+        SyncTrayIcon();
     }
 
-    void UpdateTrayIcon()
+    string? _startupError;
+
+    public string? StartupMessage => _startupError ?? _service?.StartupWarning;
+
+    public void SyncTrayIcon()
     {
         if (_tray is null || _service is null) return;
 
         _tray.Icon = TrayIconFactory.Create(_service.IsReceiving);
-        _tray.ToolTipText = _service.IsReceiving
-            ? $"Dropzone — receiving as {_service.Settings.Alias}"
-            : "Dropzone — receiving off";
+        _tray.ToolTipText = StartupMessage is { } problem
+            ? $"Dropzone — {problem}"
+            : _service.IsReceiving
+                ? $"Dropzone — receiving as {_service.Settings.Alias}"
+                : "Dropzone — receiving off";
     }
 
     protected override async void OnExit(ExitEventArgs e)

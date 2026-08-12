@@ -36,13 +36,32 @@ public sealed class PeerDiscovery : IDisposable
 
         _udp = new UdpClient(AddressFamily.InterNetwork);
         _udp.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
-        _udp.Client.Bind(new IPEndPoint(IPAddress.Any, LocalSendProtocol.DefaultPort));
-        _udp.JoinMulticastGroup(group);
-        _udp.MulticastLoopback = false;
+
+        try
+        {
+            _udp.Client.Bind(new IPEndPoint(IPAddress.Any, LocalSendProtocol.DefaultPort));
+            _udp.JoinMulticastGroup(group);
+            _udp.MulticastLoopback = false;
+        }
+        catch (SocketException ex)
+        {
+            // Another LocalSend-speaking app already owns the discovery port. Sending still works;
+            // we simply will not hear announcements, so the app stays usable instead of dying.
+            _udp.Dispose();
+            _udp = new UdpClient(AddressFamily.InterNetwork);
+            BindFailure = ex.Message;
+        }
     }
+
+    /// <summary>Non-null when the discovery port could not be bound — listening is disabled.</summary>
+    public string? BindFailure { get; }
+
+    public bool CanListen => BindFailure is null;
 
     public void Start()
     {
+        if (!CanListen) return;
+
         _cts = new CancellationTokenSource();
         _ = ListenAsync(_cts.Token);
     }

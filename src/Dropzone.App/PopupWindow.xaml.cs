@@ -2,42 +2,63 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
+using Dropzone.App.Model;
 using Dropzone.LocalSend;
 using Dropzone.Mtp;
+using Microsoft.Win32;
 
 namespace Dropzone.App;
 
 public partial class PopupWindow : Window
 {
     readonly TransferService _service;
-    readonly ObservableCollection<PeerRow> _peers = [];
-    CancellationTokenSource? _importCts;
 
-    public sealed record PeerRow(string Alias, string Address);
+    readonly ObservableCollection<PeerRow> _peers = [];
+    readonly ObservableCollection<string> _outgoing = [];
+    readonly List<string> _outgoingPaths = [];
+    readonly ObservableCollection<HistoryRow> _sent = [];
+    readonly ObservableCollection<HistoryRow> _received = [];
+    readonly ObservableCollection<MediaRow> _photos = [];
+    readonly ObservableCollection<MediaRow> _videos = [];
+    readonly ObservableCollection<ScriptRow> _scripts = [];
+
+    CancellationTokenSource? _phoneCts;
+    bool _suppressToggleEvents;
 
     public PopupWindow(TransferService service)
     {
         InitializeComponent();
         _service = service;
 
-        PeerList.ItemsSource = _peers;
-        AliasText.Text = _service.Settings.Alias;
+        RecipientBox.ItemsSource = _peers;
+        OutgoingList.ItemsSource = _outgoing;
+        SentList.ItemsSource = _sent;
+        ReceivedList.ItemsSource = _received;
+        PhotoList.ItemsSource = _photos;
+        VideoList.ItemsSource = _videos;
+        ScriptList.ItemsSource = _scripts;
 
-        _service.PeersChanged += OnPeersChanged;
-        _service.FileReceived += OnFileReceived;
+        _service.PeersChanged += () => Dispatcher.Invoke(RefreshPeers);
+        _service.HistoryChanged += () => Dispatcher.Invoke(RefreshHistory);
+        _service.ScriptInvoked += i => Dispatcher.Invoke(() =>
+            StatusLine.Text = i.Allowed
+                ? $"{i.Sender} started {i.ScriptName}"
+                : $"{i.Sender} tried {i.ScriptName} — {i.Detail}");
 
-        Deactivated += (_, _) => Hide();
-        PreviewKeyDown += (_, e) => { if (e.Key == Key.Escape) Hide(); };
+        Deactivated += (_, _) => { if (PinButton.IsChecked != true) Hide(); };
+        PreviewKeyDown += (_, e) => { if (e.Key == Key.Escape && PinButton.IsChecked != true) Hide(); };
 
         Drop += OnDrop;
         DragEnter += (_, e) => SetDropHighlight(e, true);
         DragOver += (_, e) => SetDropHighlight(e, true);
         DragLeave += (_, _) => SetDropHighlight(null, false);
-
-        RefreshUi();
     }
+
+    // ---------- lifecycle ----------
 
     public void ShowInCorner()
     {
@@ -45,92 +66,121 @@ public partial class PopupWindow : Window
         Left = area.Right - Width - 12;
         Top = area.Bottom - Height - 12;
 
-        RefreshUi();
-        RefreshPhoneStatusAsync();
+        RefreshAll();
         Show();
         Activate();
         _ = _service.ScanAsync();
     }
 
-    void RefreshUi()
+    void RefreshAll()
     {
-        var on = _service.IsReceiving;
-
-        ToggleButton.Content = on ? "Turn off" : "Turn on";
-        ReceivingHint.Text = on
-            ? $"Visible as \"{_service.Settings.Alias}\" · saving to {Shorten(_service.Settings.DownloadFolder)}"
-            : "Others cannot send to this PC right now";
-
-        StatusDot.Fill = new SolidColorBrush(on
-            ? Color.FromRgb(0x58, 0xA6, 0xFF)
-            : Color.FromRgb(0x6E, 0x72, 0x77));
-
-        NoPeersText.Visibility = _peers.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        RefreshSwitches();
+        RefreshPeers();
+        RefreshHistory();
+        RefreshScripts();
+        RefreshPhoneStatus();
+        StatusLine.Text = (Application.Current as App)?.StartupMessage
+                          ?? $"Saving to {_service.Settings.RootFolder}";
     }
 
-    static string Shorten(string path) =>
-        path.Length <= 34 ? path : "…" + path[^33..];
-
-    void OnPeersChanged()
+    void RefreshSwitches()
     {
-        Dispatcher.Invoke(() =>
-        {
-            _peers.Clear();
-            foreach (var p in _service.Peers)
-                _peers.Add(new PeerRow(p.Alias, p.Address.ToString()));
-            RefreshUi();
-        });
+        _suppressToggleEvents = true;
+        ReceiveSwitch.IsChecked = _service.IsReceiving;
+        HeaderReceiveSwitch.IsChecked = _service.IsReceiving;
+        RemoteScriptsSwitch.IsChecked = _service.Settings.AllowRemoteScripts;
+        _suppressToggleEvents = false;
+
+        ReceivingHint.Text = _service.IsReceiving
+            ? $"Visible as \"{_service.Settings.Alias}\" on this network"
+            : "Other devices cannot send to this PC";
     }
 
-    void OnFileReceived(ReceivedFile file)
+    // ---------- peers ----------
+
+    void RefreshPeers()
     {
-        Dispatcher.Invoke(() =>
-        {
-            SendStatus.Text = $"Received {file.File.FileName}";
-        });
+        var selected = (RecipientBox.SelectedItem as PeerRow)?.Peer.Fingerprint;
+
+        _peers.Clear();
+        foreach (var p in _service.Peers) _peers.Add(new PeerRow(p));
+
+        RecipientBox.SelectedItem = _peers.FirstOrDefault(r => r.Peer.Fingerprint == selected) ?? _peers.FirstOrDefault();
     }
 
-    async void RefreshPhoneStatusAsync()
+    void Scan_Click(object sender, RoutedEventArgs e)
     {
-        PhoneStatusText.Text = "Checking…";
-        ImportButton.IsEnabled = false;
-
-        var status = await Task.Run(_service.PhoneStatus);
-
-        PhoneStatusText.Text = status.Connected && status.Unlocked
-            ? $"{status.Describe()} · saving to {Shorten(_service.Settings.PhotoFolder)}"
-            : status.Describe();
-
-        ImportButton.IsEnabled = status is { Connected: true, Unlocked: true };
-    }
-
-    void Toggle_Click(object sender, RoutedEventArgs e)
-    {
-        _ = ToggleAsync();
-    }
-
-    async Task ToggleAsync()
-    {
-        ToggleButton.IsEnabled = false;
-        try
-        {
-            await _service.SetReceivingAsync(!_service.IsReceiving);
-        }
-        catch (Exception ex)
-        {
-            SendStatus.Text = ex.Message;
-        }
-        finally
-        {
-            ToggleButton.IsEnabled = true;
-            RefreshUi();
-        }
-    }
-
-    void Refresh_Click(object sender, RoutedEventArgs e)
-    {
-        SendStatus.Text = "Scanning…";
+        StatusLine.Text = "Scanning the network…";
         _ = _service.ScanAsync();
+    }
+
+    // ---------- history ----------
+
+    void RefreshHistory()
+    {
+        _sent.Clear();
+        foreach (var e in _service.History.By(TransferDirection.Sent)) _sent.Add(new HistoryRow(e));
+
+        _received.Clear();
+        foreach (var e in _service.History.By(TransferDirection.Received)) _received.Add(new HistoryRow(e));
+
+        NoSentText.Visibility = _sent.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        NoReceivedText.Visibility = _received.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    void HistoryRow_Click(object sender, MouseButtonEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not HistoryRow row) return;
+
+        var entry = row.Entry;
+        var target = entry.Folder is not null && Directory.Exists(entry.Folder)
+            ? entry.Folder
+            : entry.Files.Select(f => f.Path).FirstOrDefault(File.Exists);
+
+        if (target is null)
+        {
+            StatusLine.Text = "Those files are no longer on disk";
+            return;
+        }
+
+        Reveal(target);
+    }
+
+    static void Reveal(string path)
+    {
+        var arguments = Directory.Exists(path) ? $"\"{path}\"" : $"/select,\"{path}\"";
+        Process.Start(new ProcessStartInfo("explorer.exe", arguments) { UseShellExecute = true });
+    }
+
+    // ---------- sending ----------
+
+    void AddFiles_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog { Multiselect = true, Title = "Choose files to send" };
+        if (dialog.ShowDialog(this) != true) return;
+
+        AddOutgoing(dialog.FileNames);
+    }
+
+    void AddOutgoing(IEnumerable<string> paths)
+    {
+        foreach (var path in paths.Where(File.Exists))
+        {
+            if (_outgoingPaths.Contains(path, StringComparer.OrdinalIgnoreCase)) continue;
+            _outgoingPaths.Add(path);
+            _outgoing.Add(Path.GetFileName(path));
+        }
+
+        DropText.Text = _outgoingPaths.Count == 0
+            ? "Drop files here, or use Add files"
+            : $"{_outgoingPaths.Count} file(s) ready";
+    }
+
+    void ClearFiles_Click(object sender, RoutedEventArgs e)
+    {
+        _outgoingPaths.Clear();
+        _outgoing.Clear();
+        DropText.Text = "Drop files here, or use Add files";
     }
 
     void SetDropHighlight(DragEventArgs? e, bool active)
@@ -143,70 +193,208 @@ public partial class PopupWindow : Window
 
         DropArea.BorderBrush = new SolidColorBrush(active
             ? Color.FromRgb(0x58, 0xA6, 0xFF)
-            : Color.FromRgb(0x44, 0x48, 0x4E));
-
-        DropText.Text = active ? "Release to choose a device" : "Drop files here to send";
+            : Color.FromRgb(0x4A, 0x4E, 0x54));
     }
 
-    async void OnDrop(object sender, DragEventArgs e)
+    void OnDrop(object sender, DragEventArgs e)
     {
         SetDropHighlight(null, false);
 
         if (e.Data.GetData(DataFormats.FileDrop) is not string[] paths) return;
 
-        var files = paths.Where(File.Exists).ToList();
-        if (files.Count == 0)
+        Tabs.SelectedIndex = 0;
+        AddOutgoing(paths);
+
+        var folders = paths.Where(Directory.Exists).ToList();
+        if (folders.Count > 0)
+            StatusLine.Text = $"Skipped {folders.Count} folder(s) — only files can be sent";
+    }
+
+    async void Send_Click(object sender, RoutedEventArgs e)
+    {
+        if (RecipientBox.SelectedItem is not PeerRow target)
         {
-            SendStatus.Text = "Folders cannot be sent — drop files.";
+            StatusLine.Text = "Pick a device first — press Scan if the list is empty";
             return;
         }
 
-        var peers = _service.Peers;
-        if (peers.Count == 0)
+        if (_outgoingPaths.Count == 0)
         {
-            SendStatus.Text = "No devices found. Press Scan first.";
+            StatusLine.Text = "Add files first";
             return;
         }
 
-        var target = peers[0];
-        SendStatus.Text = $"Sending {files.Count} file(s) to {target.Alias}…";
-
+        SendButton.IsEnabled = false;
         try
         {
-            await _service.SendAsync(target, files,
-                new Progress<SendProgress>(p => SendStatus.Text = $"{p.FileName} ({p.FileIndex}/{p.FileCount})"));
+            var files = _outgoingPaths.ToList();
+            await _service.SendAsync(target.Peer, files,
+                new Progress<SendProgress>(p => StatusLine.Text = $"Sending {p.FileName} ({p.FileIndex}/{p.FileCount})"));
 
-            SendStatus.Text = $"Sent {files.Count} file(s) to {target.Alias}";
+            StatusLine.Text = $"Sent {files.Count} file(s) to {target.Peer.Alias}";
+            ClearFiles_Click(sender, e);
         }
         catch (Exception ex)
         {
-            SendStatus.Text = ex.Message;
+            StatusLine.Text = ex.Message;
+        }
+        finally
+        {
+            SendButton.IsEnabled = true;
         }
     }
 
-    void Import_Click(object sender, RoutedEventArgs e)
+    async void SendText_Click(object sender, RoutedEventArgs e)
     {
-        _ = RunImportAsync();
+        if (RecipientBox.SelectedItem is not PeerRow target)
+        {
+            StatusLine.Text = "Pick a device first";
+            return;
+        }
+
+        var text = MessageBox_Text();
+        if (string.IsNullOrWhiteSpace(text)) return;
+
+        SendTextButton.IsEnabled = false;
+        try
+        {
+            await _service.SendTextAsync(target.Peer, text);
+            StatusLine.Text = $"Message sent to {target.Peer.Alias}";
+            MessageBox.Clear();
+        }
+        catch (Exception ex)
+        {
+            StatusLine.Text = ex.Message;
+        }
+        finally
+        {
+            SendTextButton.IsEnabled = true;
+        }
     }
 
-    async Task RunImportAsync()
+    string MessageBox_Text() => MessageBox.Text;
+
+    // ---------- receiving ----------
+
+    void ReceiveSwitch_Changed(object sender, RoutedEventArgs e) => ApplyReceiveToggle(ReceiveSwitch.IsChecked == true);
+
+    void HeaderSwitch_Changed(object sender, RoutedEventArgs e) => ApplyReceiveToggle(HeaderReceiveSwitch.IsChecked == true);
+
+    async void ApplyReceiveToggle(bool wanted)
     {
-        _importCts = new CancellationTokenSource();
+        if (_suppressToggleEvents) return;
+
+        try
+        {
+            await _service.SetReceivingAsync(wanted);
+        }
+        catch (Exception ex)
+        {
+            StatusLine.Text = ex.Message;
+        }
+
+        RefreshSwitches();
+        App.Current.Dispatcher.Invoke(() => (Application.Current as App)?.SyncTrayIcon());
+    }
+
+    // ---------- phone ----------
+
+    async void RefreshPhoneStatus()
+    {
+        PhoneStatusText.Text = "Checking…";
+        var status = await Task.Run(_service.PhoneStatus);
+
+        PhoneStatusText.Text = status.Describe();
+        PhoneScanButton.IsEnabled = status is { Connected: true, Unlocked: true };
+    }
+
+    async void PhoneScan_Click(object sender, RoutedEventArgs e)
+    {
+        _phoneCts?.Cancel();
+        _phoneCts = new CancellationTokenSource();
+
+        PhoneScanButton.IsEnabled = false;
+        PhoneProgress.Visibility = Visibility.Visible;
+        PhoneProgress.IsIndeterminate = true;
+        _photos.Clear();
+        _videos.Clear();
+
+        try
+        {
+            var items = await _service.ScanPhoneAsync(
+                new Progress<string>(s => PhoneStatusText.Text = s), _phoneCts.Token);
+
+            foreach (var item in items.OrderByDescending(i => i.Modified ?? DateTime.MinValue))
+            {
+                var row = new MediaRow(item);
+                if (MediaClassifier.Classify(item.Name) == MediaKind.Video) _videos.Add(row);
+                else _photos.Add(row);
+            }
+
+            PhotosTab.Header = $"Photos ({_photos.Count})";
+            VideosTab.Header = $"Videos ({_videos.Count})";
+            PhoneStatusText.Text = $"{_photos.Count} photos, {_videos.Count} videos";
+            ImportButton.IsEnabled = _photos.Count + _videos.Count > 0;
+        }
+        catch (OperationCanceledException)
+        {
+            PhoneStatusText.Text = "Scan cancelled";
+        }
+        catch (Exception ex)
+        {
+            PhoneStatusText.Text = ex.Message;
+        }
+        finally
+        {
+            PhoneProgress.Visibility = Visibility.Collapsed;
+            PhoneScanButton.IsEnabled = true;
+        }
+    }
+
+    IEnumerable<MediaRow> AllMedia() => _photos.Concat(_videos);
+
+    void SelectAll_Click(object sender, RoutedEventArgs e)
+    {
+        foreach (var row in AllMedia()) row.Selected = true;
+    }
+
+    void SelectNone_Click(object sender, RoutedEventArgs e)
+    {
+        foreach (var row in AllMedia()) row.Selected = false;
+    }
+
+    void OpenPhotos_Click(object sender, RoutedEventArgs e)
+    {
+        Directory.CreateDirectory(_service.Settings.PhotoFolder);
+        Reveal(_service.Settings.PhotoFolder);
+    }
+
+    async void Import_Click(object sender, RoutedEventArgs e)
+    {
+        var chosen = AllMedia().Where(r => r.Selected).Select(r => r.Item).ToList();
+        if (chosen.Count == 0)
+        {
+            PhoneStatusText.Text = "Tick some files first, or press All";
+            return;
+        }
+
+        _phoneCts?.Cancel();
+        _phoneCts = new CancellationTokenSource();
+
         ImportButton.IsEnabled = false;
-        CancelImportButton.Visibility = Visibility.Visible;
-        ImportProgress.Visibility = Visibility.Visible;
-        ImportProgress.Value = 0;
+        PhoneProgress.Visibility = Visibility.Visible;
+        PhoneProgress.IsIndeterminate = false;
 
         try
         {
             var result = await _service.ImportPhoneAsync(
+                chosen,
                 new Progress<ImportProgress>(p =>
                 {
                     PhoneStatusText.Text = p.Stage;
-                    ImportProgress.IsIndeterminate = p.BytesTotal == 0;
-                    ImportProgress.Value = p.Fraction * 100;
+                    PhoneProgress.Value = p.Fraction * 100;
                 }),
-                _importCts.Token);
+                _phoneCts.Token);
 
             PhoneStatusText.Text = result.Failed == 0
                 ? $"Imported {result.Copied}, skipped {result.Skipped}"
@@ -222,21 +410,88 @@ public partial class PopupWindow : Window
         }
         finally
         {
-            ImportProgress.Visibility = Visibility.Collapsed;
-            CancelImportButton.Visibility = Visibility.Collapsed;
+            PhoneProgress.Visibility = Visibility.Collapsed;
             ImportButton.IsEnabled = true;
-            _importCts?.Dispose();
-            _importCts = null;
         }
     }
 
-    void CancelImport_Click(object sender, RoutedEventArgs e) => _importCts?.Cancel();
+    // ---------- scripts ----------
 
-    void Folders_Click(object sender, RoutedEventArgs e)
+    void RefreshScripts()
     {
-        Directory.CreateDirectory(_service.Settings.DownloadFolder);
-        Process.Start(new ProcessStartInfo("explorer.exe", _service.Settings.DownloadFolder) { UseShellExecute = true });
+        _scripts.Clear();
+        foreach (var s in _service.Scripts.All()) _scripts.Add(new ScriptRow(s));
+        NoScriptsText.Visibility = _scripts.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
+
+    void ReloadScripts_Click(object sender, RoutedEventArgs e)
+    {
+        _service.Scripts.Reload();
+        RefreshScripts();
+    }
+
+    void OpenScripts_Click(object sender, RoutedEventArgs e)
+    {
+        Directory.CreateDirectory(_service.Settings.ScriptsFolder);
+        Reveal(_service.Settings.ScriptsFolder);
+    }
+
+    void RunScript_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not ScriptInfo info) return;
+
+        try
+        {
+            ScriptRegistry.Run(info);
+            StatusLine.Text = $"Started {info.DisplayName}";
+        }
+        catch (Exception ex)
+        {
+            StatusLine.Text = ex.Message;
+        }
+    }
+
+    void EditScript_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not ScriptInfo info) return;
+
+        try
+        {
+            ScriptRegistry.OpenForEditing(info);
+        }
+        catch (Exception ex)
+        {
+            StatusLine.Text = ex.Message;
+        }
+    }
+
+    void RemoteScript_Changed(object sender, RoutedEventArgs e)
+    {
+        if (sender is not ToggleButton { Tag: ScriptInfo info } box) return;
+
+        _service.Scripts.SetRemoteEnabled(info.Name, box.IsChecked == true);
+
+        if (box.IsChecked == true && !_service.Settings.AllowRemoteScripts)
+            StatusLine.Text = "Also switch on Remote start above";
+    }
+
+    void RemoteScripts_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_suppressToggleEvents) return;
+
+        _service.Settings.AllowRemoteScripts = RemoteScriptsSwitch.IsChecked == true;
+        _service.Settings.Save();
+    }
+
+    // ---------- chrome ----------
+
+    void OpenRoot_Click(object sender, RoutedEventArgs e)
+    {
+        _service.Settings.EnsureFolders();
+        Reveal(_service.Settings.RootFolder);
+    }
+
+    void Close_Click(object sender, RoutedEventArgs e) => Hide();
 
     void Quit_Click(object sender, RoutedEventArgs e) => Application.Current.Shutdown();
 }

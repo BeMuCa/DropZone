@@ -15,14 +15,22 @@ public sealed class PhoneImporter(IPhoneSource source, IImportLedger ledger)
         IProgress<ImportProgress>? progress = null,
         CancellationToken cancellationToken = default)
     {
+        var items = await Task.Run(() => source.EnumerateMedia(
+            new Progress<string>(s => progress?.Report(new ImportProgress(s, 0, 0, 0, 0))),
+            cancellationToken), cancellationToken);
+
+        return await ImportAsync(items, destinationRoot, progress, cancellationToken);
+    }
+
+    /// <summary>Imports an explicit selection — used by the gallery, where the user picks first.</summary>
+    public async Task<ImportResult> ImportAsync(
+        IReadOnlyList<MtpItem> items,
+        string destinationRoot,
+        IProgress<ImportProgress>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
         return await Task.Run(() =>
         {
-            progress?.Report(new ImportProgress("Scanning iPhone…", 0, 0, 0, 0));
-
-            var items = source.EnumerateMedia(
-                new Progress<string>(s => progress?.Report(new ImportProgress(s, 0, 0, 0, 0))),
-                cancellationToken);
-
             var plan = ImportPlanner.Plan(items, destinationRoot, ledger.AlreadyImported());
 
             var copied = 0;

@@ -10,6 +10,7 @@ public sealed class SessionBusyException : Exception
 public sealed record ReceiveSession(
     string SessionId,
     string RemoteAddress,
+    DeviceInfo Sender,
     IReadOnlyDictionary<string, FileDto> Files,
     IReadOnlyDictionary<string, string> FileTokens);
 
@@ -21,13 +22,15 @@ public sealed class SessionStore
 {
     readonly Lock _gate = new();
     ReceiveSession? _active;
+    readonly HashSet<string> _completedFileIds = [];
 
     public ReceiveSession? Active
     {
         get { lock (_gate) return _active; }
     }
 
-    public ReceiveSession Create(IReadOnlyDictionary<string, FileDto> files, string remoteAddress)
+    public ReceiveSession Create(
+        IReadOnlyDictionary<string, FileDto> files, string remoteAddress, DeviceInfo? sender = null)
     {
         lock (_gate)
         {
@@ -35,7 +38,9 @@ public sealed class SessionStore
                 throw new SessionBusyException();
 
             var tokens = files.Keys.ToDictionary(id => id, _ => RandomToken());
-            _active = new ReceiveSession(RandomToken(), remoteAddress, files, tokens);
+            _completedFileIds.Clear();
+            _active = new ReceiveSession(
+                RandomToken(), remoteAddress, sender ?? new DeviceInfo { Alias = "Unknown" }, files, tokens);
             return _active;
         }
     }
@@ -63,18 +68,42 @@ public sealed class SessionStore
         }
     }
 
+    /// <summary>Records a finished upload. Returns the session when that was the last file.</summary>
+    public ReceiveSession? MarkReceived(string sessionId, string fileId)
+    {
+        lock (_gate)
+        {
+            if (_active is null || _active.SessionId != sessionId) return null;
+
+            _completedFileIds.Add(fileId);
+            if (_completedFileIds.Count < _active.Files.Count) return null;
+
+            var finished = _active;
+            _active = null;
+            _completedFileIds.Clear();
+            return finished;
+        }
+    }
+
     public void Cancel(string sessionId)
     {
         lock (_gate)
         {
             if (_active?.SessionId == sessionId)
+            {
                 _active = null;
+                _completedFileIds.Clear();
+            }
         }
     }
 
     public void Clear()
     {
-        lock (_gate) _active = null;
+        lock (_gate)
+        {
+            _active = null;
+            _completedFileIds.Clear();
+        }
     }
 
     static string RandomToken() => Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();

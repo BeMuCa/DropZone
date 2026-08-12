@@ -102,7 +102,7 @@ public sealed class TransferRoundTripTests : IAsyncLifetime
             await Task.Delay(50);
 
         Assert.Equal(3, Volatile.Read(ref count));
-        Assert.Equal(3, Directory.GetFiles(_downloadFolder).Length);
+        Assert.Equal(3, Directory.GetFiles(_downloadFolder, "*", SearchOption.AllDirectories).Length);
 
         foreach (var s in sources) File.Delete(s);
     }
@@ -155,10 +155,75 @@ public sealed class TransferRoundTripTests : IAsyncLifetime
         var upload = await http.PostAsync(url, new ByteArrayContent([1, 2, 3]));
         upload.EnsureSuccessStatusCode();
 
-        var landed = Directory.GetFiles(_downloadFolder);
+        var landed = Directory.GetFiles(_downloadFolder, "*", SearchOption.AllDirectories);
         Assert.Single(landed);
         Assert.Equal("escaped.txt", Path.GetFileName(landed[0]));
         Assert.StartsWith(_downloadFolder, Path.GetFullPath(landed[0]));
+    }
+
+    [Fact]
+    public async Task Completed_transfer_fires_once_with_every_file_and_the_sender()
+    {
+        var sources = Enumerable.Range(0, 3)
+            .Select(i => WriteTempFile(RandomNumberGenerator.GetBytes(1024), $"dropzone-grp-{i}-{Guid.NewGuid():N}.bin"))
+            .ToList();
+
+        var completed = new TaskCompletionSource<CompletedTransfer>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var fireCount = 0;
+        _receiver.TransferCompleted += t => { Interlocked.Increment(ref fireCount); completed.TrySetResult(t); };
+
+        using var sender = new LocalSendSender(SenderInfo());
+        await sender.SendAsync(ReceiverPeer, sources);
+
+        var transfer = await completed.Task.WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.Equal(3, transfer.Files.Count);
+        Assert.Equal("test-sender", transfer.Sender.Alias);
+        Assert.Equal("desktop", transfer.Sender.DeviceType);
+        Assert.True(Directory.Exists(transfer.Folder));
+
+        await Task.Delay(300);
+        Assert.Equal(1, Volatile.Read(ref fireCount));
+
+        foreach (var s in sources) File.Delete(s);
+    }
+
+    [Fact]
+    public async Task A_text_file_surfaces_as_a_text_message()
+    {
+        var source = WriteTempFile("run backup"u8.ToArray(), $"dropzone-msg-{Guid.NewGuid():N}.txt");
+
+        var text = new TaskCompletionSource<ReceivedText>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _receiver.TextReceived += t => text.TrySetResult(t);
+
+        using var sender = new LocalSendSender(SenderInfo());
+        await sender.SendAsync(ReceiverPeer, [source]);
+
+        var message = await text.Task.WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.Equal("run backup", message.Text);
+        Assert.Equal("test-sender", message.Sender.Alias);
+        File.Delete(source);
+    }
+
+    [Fact]
+    public async Task Each_transfer_lands_in_its_own_folder()
+    {
+        var a = WriteTempFile([1, 2, 3], $"dropzone-f1-{Guid.NewGuid():N}.bin");
+        var b = WriteTempFile([4, 5, 6], $"dropzone-f2-{Guid.NewGuid():N}.bin");
+
+        using var sender = new LocalSendSender(SenderInfo());
+        await sender.SendAsync(ReceiverPeer, [a]);
+        await Task.Delay(1100); // folder name is second-resolution
+        await sender.SendAsync(ReceiverPeer, [b]);
+
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (Directory.GetDirectories(_downloadFolder).Length < 2 && DateTime.UtcNow < deadline)
+            await Task.Delay(50);
+
+        Assert.Equal(2, Directory.GetDirectories(_downloadFolder).Length);
+        File.Delete(a);
+        File.Delete(b);
     }
 
     [Fact]
