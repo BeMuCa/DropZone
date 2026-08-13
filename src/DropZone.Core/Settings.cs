@@ -1,7 +1,7 @@
 using System.IO;
 using System.Text.Json;
 
-namespace DropZone.App;
+namespace DropZone.Core;
 
 public sealed class Settings
 {
@@ -20,7 +20,7 @@ public sealed class Settings
     /// Extension to command-line prefix. DropZone appends the quoted script path and any
     /// arguments, so ".py": "py -3" runs  py -3 "C:\...\Timer.py" 5.
     /// </summary>
-    public Dictionary<string, string> Interpreters { get; set; } = Model.DefaultInterpreters.Create();
+    public Dictionary<string, string> Interpreters { get; set; } = DefaultInterpreters.Create();
 
     public string ReceivedFolder => Path.Combine(RootFolder, "Received");
     public string SentFolder => Path.Combine(RootFolder, "Sent");
@@ -37,7 +37,15 @@ public sealed class Settings
             Directory.CreateDirectory(folder);
     }
 
+    /// <summary>
+    /// Where settings.json lives. Tests must point this at a temp folder: constructing a service
+    /// writes the settings back, so a test run with throwaway settings would otherwise overwrite
+    /// the real ones and move the whole installation to a temp directory.
+    /// </summary>
+    public static string? ConfigDirectoryOverride { get; set; }
+
     static string ConfigDirectory =>
+        ConfigDirectoryOverride ??
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "DropZone");
 
     static string ConfigPath => Path.Combine(ConfigDirectory, "settings.json");
@@ -52,7 +60,7 @@ public sealed class Settings
 
                 // Settings written before a new extension was supported would otherwise never
                 // learn about it, so fill gaps rather than replacing what the user edited.
-                foreach (var (extension, command) in Model.DefaultInterpreters.Create())
+                foreach (var (extension, command) in DefaultInterpreters.Create())
                     loaded.Interpreters.TryAdd(extension, command);
 
                 return loaded;

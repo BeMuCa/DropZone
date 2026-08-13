@@ -1,6 +1,6 @@
 using System.IO;
 
-namespace DropZone.App.Model;
+namespace DropZone.Core;
 
 /// <summary>
 /// Seeds the Scripts folder the first time so there is something to run — and so the calling

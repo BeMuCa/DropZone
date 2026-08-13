@@ -7,7 +7,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
-using DropZone.App.Model;
+using DropZone.Core;
 using DropZone.LocalSend;
 using DropZone.Mtp;
 using Microsoft.Win32;

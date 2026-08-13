@@ -2,7 +2,7 @@ using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace DropZone.App.Model;
+namespace DropZone.Core;
 
 public enum TransferDirection { Sent, Received }
 

@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <ProjectReference Include="..\DropZone.Core\DropZone.Core.csproj" />
     <ProjectReference Include="..\DropZone.Mtp\DropZone.Mtp.csproj" />
     <ProjectReference Include="..\DropZone.LocalSend\DropZone.LocalSend.csproj" />
   </ItemGroup>

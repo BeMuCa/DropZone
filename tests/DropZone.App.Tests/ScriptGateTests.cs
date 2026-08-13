@@ -1,5 +1,5 @@
 using System.IO;
-using DropZone.App.Model;
+using DropZone.Core;
 
 namespace DropZone.App.Tests;
 

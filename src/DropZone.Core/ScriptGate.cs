@@ -1,4 +1,4 @@
-namespace DropZone.App.Model;
+namespace DropZone.Core;
 
 public enum ScriptGateOutcome
 {

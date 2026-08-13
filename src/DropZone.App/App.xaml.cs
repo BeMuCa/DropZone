@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using DropZone.Core;
 using H.NotifyIcon;
 
 namespace DropZone.App;
@@ -9,6 +10,7 @@ public partial class App : Application
     TaskbarIcon? _tray;
     TransferService? _service;
     PopupWindow? _popup;
+    IpcServer? _ipc;
 
     static Mutex? _singleInstance;
 
@@ -51,6 +53,11 @@ public partial class App : Application
             // Never block startup with a modal box — the tray tooltip carries the bad news.
             _startupError = ex.Message;
         }
+
+        // The MCP server drives this instance through here, so an agent works the same DropZone
+        // the user sees rather than a second copy fighting it for the port.
+        _ipc = new IpcServer(_service);
+        _ipc.Start();
 
         SyncTrayIcon();
     }
@@ -114,6 +121,7 @@ public partial class App : Application
 
     protected override async void OnExit(ExitEventArgs e)
     {
+        _ipc?.Dispose();
         if (_service is not null) await _service.DisposeAsync();
         _tray?.Dispose();
         base.OnExit(e);

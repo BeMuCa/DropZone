@@ -2,7 +2,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
 
-namespace DropZone.App.Model;
+namespace DropZone.Core;
 
 public sealed record ScriptInfo(string Name, string Path, string Extension, bool RemoteEnabled)
 {
@@ -74,6 +74,35 @@ public sealed class ScriptRegistry(
                 Path.GetFileName(p), p, Path.GetExtension(p),
                 _remoteEnabled.TryGetValue(Path.GetFileName(p), out var on) && on))
             .ToList();
+    }
+
+    /// <summary>
+    /// Writes a new script into the folder. The name is treated as untrusted — it decides a path
+    /// on disk — so it must be a bare file name with an extension we know how to launch. A new
+    /// script is never callable from another device: that stays a decision made in the UI.
+    /// </summary>
+    public ScriptInfo Create(string name, string content)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            throw new ArgumentException("A script needs a name.", nameof(name));
+
+        if (name != Path.GetFileName(name) || name.Contains("..") ||
+            name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+            throw new ArgumentException($"\"{name}\" is not a plain file name.", nameof(name));
+
+        var extension = Path.GetExtension(name);
+        if (!_interpreters.ContainsKey(extension))
+            throw new ArgumentException(
+                $"Nothing is configured to run \"{extension}\" files. Known: {string.Join(", ", KnownExtensions)}",
+                nameof(name));
+
+        var path = Path.Combine(scriptsFolder, name);
+        if (File.Exists(path)) throw new IOException($"{name} already exists.");
+
+        Directory.CreateDirectory(scriptsFolder);
+        File.WriteAllText(path, content);
+
+        return new ScriptInfo(name, path, extension, RemoteEnabled: false);
     }
 
     public void SetRemoteEnabled(string scriptFileName, bool enabled)

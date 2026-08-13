@@ -1,4 +1,5 @@
 using System.IO;
+using DropZone.Core;
 
 namespace DropZone.App.Tests;
 
@@ -28,12 +29,19 @@ public class PopupWindowSmokeTests
         return result;
     }
 
-    static Settings TempSettings(string root) => new()
+    static Settings TempSettings(string root)
     {
-        RootFolder = root,
-        Alias = "smoke-test",
-        ReceiveOnStart = false
-    };
+        // TransferService writes the settings back on construction, so without this the run
+        // would overwrite the real settings.json and point DropZone at this temp folder.
+        Settings.ConfigDirectoryOverride = root;
+
+        return new Settings
+        {
+            RootFolder = root,
+            Alias = "smoke-test",
+            ReceiveOnStart = false
+        };
+    }
 
     [Fact]
     public void Window_constructs_without_xaml_errors()

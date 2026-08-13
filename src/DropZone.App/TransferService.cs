@@ -1,7 +1,8 @@
+using System.Collections.Concurrent;
 using System.IO;
 using System.Net.Sockets;
 using System.Security.Cryptography.X509Certificates;
-using DropZone.App.Model;
+using DropZone.Core;
 using DropZone.LocalSend;
 using DropZone.Mtp;
 
@@ -21,6 +22,9 @@ public sealed class TransferService : IAsyncDisposable
 
     LocalSendReceiver? _receiver;
     PeerDiscovery? _discovery;
+
+    /// <summary>Questions sent to a peer, keyed by its address, waiting for the reply to come back.</summary>
+    readonly ConcurrentDictionary<string, TaskCompletionSource<string>> _awaitingReply = new();
 
     public Settings Settings { get; }
     public TransferHistory History { get; }
@@ -157,6 +161,13 @@ public sealed class TransferService : IAsyncDisposable
 
     void OnTextReceived(ReceivedText message)
     {
+        // An answer to something we asked that device, not an instruction for us.
+        if (_awaitingReply.TryRemove(message.RemoteAddress, out var waiter))
+        {
+            waiter.TrySetResult(message.Text);
+            return;
+        }
+
         var decision = ScriptGate.Evaluate(message.Text, Settings.AllowRemoteScripts, Scripts);
 
         if (decision.Outcome == ScriptGateOutcome.NotACommand) return;
@@ -266,6 +277,35 @@ public sealed class TransferService : IAsyncDisposable
         finally
         {
             File.Delete(temp);
+        }
+    }
+
+    /// <summary>
+    /// Asks a peer something and waits for its answer. The answer comes back as an ordinary text
+    /// message on our receiver, which is why this only works while receiving is on — and why it
+    /// has to happen here rather than in a second process that does not own the port.
+    /// </summary>
+    public async Task<string?> AskAsync(Peer peer, string text, TimeSpan timeout)
+    {
+        if (!IsReceiving)
+            throw new InvalidOperationException(
+                "Receiving is off, so the answer would never arrive. Turn receiving on first.");
+
+        var address = peer.Address.ToString();
+        var waiter = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _awaitingReply[address] = waiter;
+
+        try
+        {
+            await SendTextAsync(peer, text, recordInHistory: false);
+
+            return await Task.WhenAny(waiter.Task, Task.Delay(timeout)) == waiter.Task
+                ? await waiter.Task
+                : null;
+        }
+        finally
+        {
+            _awaitingReply.TryRemove(address, out _);
         }
     }
 

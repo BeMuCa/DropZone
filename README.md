@@ -123,18 +123,44 @@ If Claude runs inside WSL, point it at the same file through the drive mount ins
 
 | Tool | What it does |
 |---|---|
+| `dropzone_status` | is the app running, is it receiving, which alias and folders are in use |
 | `phone_status` | whether an iPhone is attached and unlocked |
 | `phone_scan` | list media newest-first, stopping once it has `limit` files |
 | `phone_import` | copy photos and videos into dated folders |
-| `discover_peers` | announce this PC and list the devices that answer |
+| `discover_peers` | find the PCs and phones on this network |
 | `send_files` | send files to a peer, matched on alias or fingerprint |
+| `send_text` | send a message — the Send tab's message box |
+| `set_receiving` | the Receive tab's on/off switch |
 | `transfer_history` | the transfers the tray app has recorded |
+| `list_scripts` | this PC's scripts, and which are ticked for remote start |
+| `create_script` | write a new script into the Scripts folder |
+| `run_script` | run one of this PC's scripts |
+| `list_remote_scripts` | ask another device what it will let this PC start |
+| `run_remote_script` | start a script on another device |
 
-Every call is self-contained, so the tray app does not have to be running, and nothing holds
-the phone or the discovery socket open afterwards. The two can run side by side — discovery
-sets `SO_REUSEADDR`, so both hear announcements — but do not scan the phone from both at once.
+### How it reaches the app
+
+The receiver, the peer list and any reply coming back from a peer belong to the tray app —
+only one process can hold port 53317, so a second copy could never see them. `DropZone.Mcp.exe`
+therefore forwards to the running app over a named pipe, and does the work itself only when the
+app is closed:
+
+```
+Claude ──stdio──> DropZone.Mcp.exe ──pipe──> DropZone.App (tray)
+                        │
+                        └── app closed: phone, sending and local scripts still work;
+                            receiving and remote scripts say so instead
+```
+
+Because it is the same instance, a send from Claude lands in the history the UI shows, and a
+script it writes appears in the Scripts tab.
+
+**Remote scripts stay a human decision.** An agent can create and run scripts here, and start a
+script on a peer that you already ticked — but it cannot tick one, and it cannot touch the
+master switch. Both remain UI-only, deliberately.
 
 Imports share the tray app's ledger, so a file taken by one is not taken again by the other.
+Scanning the phone from the app and from an agent at the same time is not supported.
 
 ## Why the cable is one-way
 
@@ -179,6 +205,7 @@ UNC path, set an explicit local `ContentRootPath` on any ASP.NET host: the defau
 `WebApplication.CreateBuilder()` hangs forever when the content root is a UNC path.
 
 ```
+src/DropZone.Core        settings, scripts, history — shared by the app and the MCP server
 src/DropZone.Mtp         cable import: folder parsing, planning, ledger, MediaDevices source
 src/DropZone.LocalSend   protocol v2: discovery, Kestrel receiver, sender
 src/DropZone.App         WPF tray app (H.NotifyIcon)
@@ -222,6 +249,9 @@ The status line at the bottom of the panel shows which addresses are actually jo
   run DropZone against DropZone.
 - No PIN support on incoming transfers, and no per-transfer accept prompt in the UI
   (`ApproveTransfer` exists as a hook, defaulting to accept).
+- `list_remote_scripts` and `run_remote_script` have **not** been exercised against a second
+  device. The reply plumbing they rely on — asking a peer and matching its answer back to the
+  question — has only been tested through its failure path.
 
 ## Licence
 

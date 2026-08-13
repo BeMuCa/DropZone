@@ -1,5 +1,5 @@
 using System.IO;
-using DropZone.App.Model;
+using DropZone.Core;
 
 namespace DropZone.App.Tests;
 
@@ -151,6 +151,60 @@ public sealed class ScriptRegistryTests : IDisposable
     public void Missing_folder_yields_no_scripts()
     {
         Assert.Empty(new ScriptRegistry(Path.Combine(_dir, "nope"), ConfigPath).All());
+    }
+
+    [Fact]
+    public void Creates_a_script_that_is_then_listed()
+    {
+        var registry = new ScriptRegistry(_dir, ConfigPath);
+        var created = registry.Create("backup.ps1", "echo hi");
+
+        Assert.Equal(Path.Combine(_dir, "backup.ps1"), created.Path);
+        Assert.Equal("echo hi", File.ReadAllText(created.Path));
+        Assert.Equal("backup.ps1", registry.All().Single().Name);
+    }
+
+    [Fact]
+    public void A_created_script_is_not_callable_from_another_device()
+    {
+        var registry = new ScriptRegistry(_dir, ConfigPath);
+        registry.Create("backup.ps1", "echo hi");
+
+        Assert.False(registry.All().Single().RemoteEnabled);
+        Assert.Null(registry.FindRemotelyInvocable("backup"));
+    }
+
+    [Theory]
+    [InlineData(@"..\escape.ps1")]
+    [InlineData("../escape.ps1")]
+    [InlineData(@"sub\backup.ps1")]
+    [InlineData(@"C:\Windows\evil.ps1")]
+    [InlineData("")]
+    public void A_name_that_is_really_a_path_is_refused(string name)
+    {
+        var registry = new ScriptRegistry(_dir, ConfigPath);
+
+        Assert.Throws<ArgumentException>(() => registry.Create(name, "echo hi"));
+        Assert.Empty(registry.All());
+    }
+
+    [Fact]
+    public void A_script_nothing_can_launch_is_refused()
+    {
+        var registry = new ScriptRegistry(_dir, ConfigPath);
+
+        Assert.Throws<ArgumentException>(() => registry.Create("payload.exe", "echo hi"));
+        Assert.False(File.Exists(Path.Combine(_dir, "payload.exe")));
+    }
+
+    [Fact]
+    public void Creating_over_an_existing_script_is_refused()
+    {
+        MakeScript("backup.ps1");
+        var registry = new ScriptRegistry(_dir, ConfigPath);
+
+        Assert.Throws<IOException>(() => registry.Create("backup.ps1", "echo replaced"));
+        Assert.Equal("echo hi", File.ReadAllText(Path.Combine(_dir, "backup.ps1")));
     }
 }
 

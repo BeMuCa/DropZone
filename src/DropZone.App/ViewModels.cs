@@ -1,7 +1,7 @@
 using System.ComponentModel;
 using System.IO;
 using System.Runtime.CompilerServices;
-using DropZone.App.Model;
+using DropZone.Core;
 using DropZone.LocalSend;
 using DropZone.Mtp;
 
